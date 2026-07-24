@@ -3,6 +3,9 @@ print-agent/*
 !print-agent/agent.js
 node_modules/
 
+# Variables de entorno para docker-compose
+.env
+
 # Dumps de base de datos (no subir datos/backups al repo)
 
 # Archivos subidos por usuarios (imágenes de productos, logo, etc.)

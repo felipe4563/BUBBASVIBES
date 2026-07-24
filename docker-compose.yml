@@ -1,0 +1,63 @@
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:-restaurante_db}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:?DB_ROOT_PASS es obligatorio}
+      MYSQL_USER: ${DB_USER:-app}
+      MYSQL_PASSWORD: ${DB_PASS:?DB_PASS es obligatorio}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${DB_ROOT_PASS}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 3001
+      NODE_ENV: production
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-restaurante_db}
+      DB_USER: ${DB_USER:-app}
+      DB_PASS: ${DB_PASS:?DB_PASS es obligatorio}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET es obligatorio}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET es obligatorio}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://cdemo.codewave.com.bo}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD es obligatorio}
+      CODEPAY_SANDBOX: ${CODEPAY_SANDBOX:-true}
+      CODEPAY_API_URL: ${CODEPAY_API_URL:-https://payapi.codewave.com.bo/api}
+      CODEPAY_PUBLIC_KEY: ${CODEPAY_PUBLIC_KEY:-}
+      CODEPAY_SECRET_KEY: ${CODEPAY_SECRET_KEY:-}
+      CODEPAY_NOTIFICATION_SECRET: ${CODEPAY_NOTIFICATION_SECRET:-}
+      CODEPAY_SANDBOX_PUBLIC_KEY: ${CODEPAY_SANDBOX_PUBLIC_KEY:-}
+      CODEPAY_SANDBOX_SECRET_KEY: ${CODEPAY_SANDBOX_SECRET_KEY:-}
+    volumes:
+      - uploads:/app/uploads
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-https://cdemo.codewave.com.bo/api/v1}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    volumes:
+      - uploads:/usr/share/nginx/uploads:ro
+
+volumes:
+  db_data:
+  uploads:

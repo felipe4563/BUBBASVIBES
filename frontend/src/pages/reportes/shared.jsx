@@ -36,18 +36,18 @@ export function BadgeTipo({ tipo }) {
 export function FiltroFechas({ desde, hasta, setDesde, setHasta, onBuscar, cargando }) {
   return (
     <div className="flex flex-wrap gap-3 items-end">
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 flex-1 min-w-[8.5rem] sm:flex-none">
         <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Desde</label>
         <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
-          className="px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
+          className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 flex-1 min-w-[8.5rem] sm:flex-none">
         <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Hasta</label>
         <input type="date" value={hasta} onChange={e => setHasta(e.target.value)}
-          className="px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
+          className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
       </div>
       <button onClick={onBuscar} disabled={cargando}
-        className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
+        className="flex items-center justify-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50 w-full sm:w-auto">
         <Search className="w-4 h-4" /> Buscar
       </button>
     </div>
@@ -67,15 +67,15 @@ export function StatCard({ label, valor, color, Icono, idx }) {
   const c = COLORES[color] || COLORES.violet;
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl p-5 ${c.bg} border border-white/60 dark:border-gray-700/50 animate-[rpFadeUp_0.4s_ease_forwards] opacity-0`}
+      className={`relative overflow-hidden rounded-xl sm:rounded-2xl p-3 sm:p-5 ${c.bg} border border-white/60 dark:border-gray-700/50 animate-[rpFadeUp_0.4s_ease_forwards] opacity-0`}
       style={{ animationDelay: `${idx * 60}ms` }}
     >
-      <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl ${c.bar}`} />
-      <div className="flex items-center gap-3 mb-1">
-        <Icono className={`w-4 h-4 ${c.icon}`} />
-        <span className={`text-xs font-medium ${c.text}`}>{label}</span>
+      <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl sm:rounded-l-2xl ${c.bar}`} />
+      <div className="flex items-center gap-2 sm:gap-3 mb-1">
+        <Icono className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${c.icon}`} />
+        <span className={`text-[11px] sm:text-xs font-medium truncate ${c.text}`}>{label}</span>
       </div>
-      <p className="text-2xl font-bold text-gray-900 dark:text-white leading-tight">{valor}</p>
+      <p className="text-base sm:text-2xl font-bold text-gray-900 dark:text-white leading-tight truncate">{valor}</p>
     </div>
   );
 }

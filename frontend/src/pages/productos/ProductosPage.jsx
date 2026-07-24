@@ -555,14 +555,14 @@ function FormProductoModal({ prod, categorias, gruposOpciones, accesoTodas, sucu
           <div>
             <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Precio (Bs) *</label>
             <input
-              type="number" min="1.01" step="0.01"
+              type="number" min="1" step="0.01"
               value={form.precio}
               onChange={e => set('precio', e.target.value)}
               placeholder="0.00"
               className="w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-2.5 text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
             />
-            {form.precio !== '' && !(parseFloat(form.precio) > 1) && (
-              <p className="text-xs text-red-600 mt-1">El precio debe ser mayor a 1</p>
+            {form.precio !== '' && !(parseFloat(form.precio) >= 1) && (
+              <p className="text-xs text-red-600 mt-1">El precio debe ser igual o mayor a 1</p>
             )}
           </div>
           {!prod && (
@@ -608,7 +608,7 @@ function FormProductoModal({ prod, categorias, gruposOpciones, accesoTodas, sucu
           <button
             onClick={handleGuardar}
             disabled={
-              guardando || subiendoImg || !form.nombre.trim() || !(parseFloat(form.precio) > 1) || !form.categoria_id ||
+              guardando || subiendoImg || !form.nombre.trim() || !(parseFloat(form.precio) >= 1) || !form.categoria_id ||
               (!prod && accesoTodas && form.stock !== '' && !form.sucursal_id)
             }
             className="px-4 py-2 rounded-xl text-sm bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-60"

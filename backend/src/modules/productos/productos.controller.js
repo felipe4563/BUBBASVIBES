@@ -59,7 +59,7 @@ async function obtenerProducto(req, res, next) {
 }
 
 function _precioInvalido(precio) {
-  return precio !== undefined && !(parseFloat(precio) > 1);
+  return precio !== undefined && !(parseFloat(precio) >= 1);
 }
 
 async function crearProducto(req, res, next) {
@@ -69,7 +69,7 @@ async function crearProducto(req, res, next) {
       return res.status(400).json({ ok: false, mensaje: 'categoria_id, nombre y precio son requeridos' });
     }
     if (_precioInvalido(precio)) {
-      return res.status(400).json({ ok: false, mensaje: 'El precio debe ser mayor a 1' });
+      return res.status(400).json({ ok: false, mensaje: 'El precio debe ser igual o mayor a 1' });
     }
     res.status(201).json({ ok: true, datos: await svc.crearProducto(req.body, _alcance(req)) });
   } catch (err) { next(err); }
@@ -78,7 +78,7 @@ async function crearProducto(req, res, next) {
 async function actualizarProducto(req, res, next) {
   try {
     if (_precioInvalido(req.body.precio)) {
-      return res.status(400).json({ ok: false, mensaje: 'El precio debe ser mayor a 1' });
+      return res.status(400).json({ ok: false, mensaje: 'El precio debe ser igual o mayor a 1' });
     }
     res.json({ ok: true, datos: await svc.actualizarProducto(req.params.id, req.body, _alcance(req)) });
   } catch (err) { next(err); }

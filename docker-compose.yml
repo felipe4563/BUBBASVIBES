@@ -9,7 +9,7 @@ services:
       MYSQL_PASSWORD: ${DB_PASS:?DB_PASS es obligatorio}
     volumes:
       - db_data:/var/lib/mysql
-      - ./backend/database/migrations:/docker-entrypoint-initdb.d:ro
+      - ./bd/bd_solocarnestropicales.sql:/docker-entrypoint-initdb.d/01_dump.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${DB_ROOT_PASS}"]
       interval: 5s

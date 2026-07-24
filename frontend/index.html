@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- PWA / theme -->
+    <meta name="theme-color" content="#d97706" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Restaurante" />
+    <meta name="application-name" content="Sistema Restaurante" />
+    <meta name="description" content="Sistema de gestión integral para restaurantes" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <link rel="apple-touch-icon" href="/icons/icon.svg" />
+
+    <title>Sistema Restaurante</title>
+
+    <!-- Anti-flash: aplica el modo oscuro antes de que React cargue -->
+    <script>
+      try {
+        const stored = JSON.parse(localStorage.getItem('theme') || '{}');
+        const modo = stored?.state?.modo;
+        if (modo === 'dark' || (!modo && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (_) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

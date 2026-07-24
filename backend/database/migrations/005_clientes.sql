@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS clientes (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(255) NOT NULL,
+  tipo_documento VARCHAR(50) NOT NULL DEFAULT 'CI',
+  numero_documento VARCHAR(50),
+  email VARCHAR(255),
+  telefono VARCHAR(50),
+  direccion VARCHAR(255),
+  creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY clientes_doc_unique (numero_documento)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

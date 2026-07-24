@@ -1,0 +1,35 @@
+CREATE TABLE IF NOT EXISTS detalle_arqueo (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  sesion_caja_id INT UNSIGNED NOT NULL,
+  denominacion DECIMAL(10,2) NOT NULL,
+  cantidad INT NOT NULL DEFAULT 0,
+  subtotal DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  FOREIGN KEY (sesion_caja_id) REFERENCES sesiones_caja(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS gastos (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  sesion_caja_id INT UNSIGNED,
+  usuario_id INT UNSIGNED NOT NULL,
+  descripcion VARCHAR(255) NOT NULL,
+  monto DECIMAL(10,2) NOT NULL,
+  creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (sesion_caja_id) REFERENCES sesiones_caja(id) ON DELETE SET NULL,
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS libro_caja (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  sesion_caja_id INT UNSIGNED,
+  usuario_id INT UNSIGNED NOT NULL,
+  tipo ENUM('ingreso','egreso') NOT NULL,
+  concepto VARCHAR(255) NOT NULL,
+  monto DECIMAL(10,2) NOT NULL,
+  metodo_pago ENUM('efectivo','qr') NOT NULL DEFAULT 'efectivo',
+  referencia_id INT UNSIGNED,
+  creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (sesion_caja_id) REFERENCES sesiones_caja(id) ON DELETE SET NULL,
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

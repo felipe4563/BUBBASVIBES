@@ -1,6 +1,6 @@
-const { io }           = require('socket.io-client');
-const { execFileSync } = require('child_process');
-const { writeFileSync, unlinkSync, readFileSync, existsSync } = require('fs');
+const { io }                    = require('socket.io-client');
+const { execFileSync, execFile } = require('child_process');
+const { writeFileSync, unlinkSync, readFileSync, existsSync, appendFileSync, statSync } = require('fs');
 const path             = require('path');
 const os               = require('os');
 const http             = require('http');
@@ -9,6 +9,27 @@ const http             = require('http');
 const CONFIG_DIR = process.pkg
   ? path.dirname(process.execPath)
   : path.join(path.dirname(process.argv[1]));
+
+// ── Log a archivo ─────────────────────────────────────────────────────────────
+// El agente corre oculto (sin ventana), así que console.log no lo ve nadie.
+// Todo lo que se loguea también queda en agente.log, para poder revisar
+// después qué pasó con cada impresión (y por cuál canal — local o socket).
+const LOG_FILE      = path.join(CONFIG_DIR, 'agente.log');
+const LOG_MAX_BYTES = 5 * 1024 * 1024;
+
+function logAArchivo(linea) {
+  try {
+    if (existsSync(LOG_FILE) && statSync(LOG_FILE).size > LOG_MAX_BYTES) {
+      writeFileSync(LOG_FILE, ''); // evita que crezca sin límite
+    }
+    appendFileSync(LOG_FILE, linea + '\n');
+  } catch {}
+}
+
+const _consoleLog   = console.log.bind(console);
+const _consoleError = console.error.bind(console);
+console.log = (...args) => { _consoleLog(...args); logAArchivo(args.join(' ')); };
+console.error = (...args) => { _consoleError(...args); logAArchivo('ERROR: ' + args.join(' ')); };
 
 // ── Instancia única: evita que corran dos agentes al mismo tiempo ─────────────
 const LOCK_FILE = path.join(CONFIG_DIR, 'agente.lock');
@@ -66,39 +87,55 @@ function limpiarVencidos() {
   }
 }
 
-// Solo consulta — no marca. Marcar antes de imprimir bloquearía los
-// reintentos si la impresión falla (sin papel, apagada, etc).
 function yaImpreso(tipo, pedidoId) {
   limpiarVencidos();
   return impresos.has(tipo + ':' + pedidoId);
 }
 
-function marcarImpreso(tipo, pedidoId) {
+// Reserva el slot ANTES de imprimir (síncrono, sin await de por medio) para
+// que si el canal socket y el canal local llegan casi al mismo tiempo, el
+// segundo vea la reserva del primero y no dispare una impresión física
+// duplicada. Si falla, se libera para permitir reintentar.
+function reservar(tipo, pedidoId) {
   impresos.set(tipo + ':' + pedidoId, Date.now());
 }
 
-function imprimirCaja(datos, origen) {
+function liberar(tipo, pedidoId) {
+  impresos.delete(tipo + ':' + pedidoId);
+}
+
+async function imprimirCaja(datos, origen) {
   var pid = datos.pedido ? datos.pedido.id : '?';
   if (yaImpreso('caja', pid)) {
     console.log('[' + ts() + '] .. print:caja Pedido #' + pid + ' ya impreso (' + origen + ', omitido)');
     return;
   }
+  reservar('caja', pid);
   console.log('[' + ts() + '] >> print:caja  Pedido #' + pid + ' (' + origen + ')');
-  printRaw(config.impresora_caja, buildCaja(datos));
-  marcarImpreso('caja', pid);
-  console.log('[' + ts() + '] OK Caja impreso');
+  try {
+    await printRaw(config.impresora_caja, buildCaja(datos));
+    console.log('[' + ts() + '] OK Caja impreso');
+  } catch (err) {
+    liberar('caja', pid);
+    throw err;
+  }
 }
 
-function imprimirCocina(datos, origen) {
+async function imprimirCocina(datos, origen) {
   var pid = datos.pedido ? datos.pedido.id : '?';
   if (yaImpreso('cocina', pid)) {
     console.log('[' + ts() + '] .. print:cocina Pedido #' + pid + ' ya impreso (' + origen + ', omitido)');
     return;
   }
+  reservar('cocina', pid);
   console.log('[' + ts() + '] >> print:cocina Pedido #' + pid + ' (' + origen + ')');
-  printRaw(config.impresora_cocina, buildCocina(datos));
-  marcarImpreso('cocina', pid);
-  console.log('[' + ts() + '] OK Cocina impreso');
+  try {
+    await printRaw(config.impresora_cocina, buildCocina(datos));
+    console.log('[' + ts() + '] OK Cocina impreso');
+  } catch (err) {
+    liberar('cocina', pid);
+    throw err;
+  }
 }
 
 // ── Canal 1: socket.io remoto (respaldo — funciona aunque esta PC no sea la que vendió) ──
@@ -121,13 +158,13 @@ socket.on('connect', () => {
 socket.on('disconnect',    () => console.log(`[${ts()}] ✗ Desconectado — reintentando...`));
 socket.on('connect_error', (e) => console.log(`[${ts()}] ✗ Error: ${e.message}`));
 
-socket.on('print:caja', function(datos) {
-  try { imprimirCaja(datos, 'socket'); }
+socket.on('print:caja', async function(datos) {
+  try { await imprimirCaja(datos, 'socket'); }
   catch (err) { console.error('[' + ts() + '] ERROR caja (socket): ' + err.message); }
 });
 
-socket.on('print:cocina', function(datos) {
-  try { imprimirCocina(datos, 'socket'); }
+socket.on('print:cocina', async function(datos) {
+  try { await imprimirCocina(datos, 'socket'); }
   catch (err) { console.error('[' + ts() + '] ERROR cocina (socket): ' + err.message); }
 });
 
@@ -171,8 +208,8 @@ const servidorLocal = http.createServer(async (req, res) => {
     const tipo = req.url === '/imprimir/caja' ? 'caja' : 'cocina';
     try {
       const datos = await leerCuerpo(req);
-      if (tipo === 'caja') imprimirCaja(datos, 'local');
-      else imprimirCocina(datos, 'local');
+      if (tipo === 'caja') await imprimirCaja(datos, 'local');
+      else await imprimirCocina(datos, 'local');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
     } catch (err) {
@@ -431,28 +468,35 @@ public class RawPrint {
 '@
 `;
 
+// Asíncrona a propósito: si fuera bloqueante (execFileSync), todo el proceso
+// —incluido el servidor HTTP local— se congela mientras PowerShell imprime
+// (500ms-2s típico). Eso hacía que la petición local del navegador quedara
+// en cola detrás de una impresión disparada por socket, y para cuando se
+// atendía, el pedido ya estaba marcado como impreso (se veía como "omitido").
 function printRaw(printerName, buffer) {
-  const id     = Date.now();
-  const tmpBin = path.join(os.tmpdir(), `ticket_${id}.bin`);
-  const tmpPs  = path.join(os.tmpdir(), `print_${id}.ps1`);
+  return new Promise((resolve, reject) => {
+    const id     = Date.now();
+    const tmpBin = path.join(os.tmpdir(), `ticket_${id}.bin`);
+    const tmpPs  = path.join(os.tmpdir(), `print_${id}.ps1`);
 
-  writeFileSync(tmpBin, buffer);
+    writeFileSync(tmpBin, buffer);
 
-  const ps1 = PS_RAWPRINT +
-    `$bytes = [System.IO.File]::ReadAllBytes("${tmpBin.replace(/\\/g, '\\\\')}")\n` +
-    `$ok    = [RawPrint]::Send("${printerName}", $bytes)\n` +
-    `if (-not $ok) { Write-Error "Impresora no respondio: ${printerName}"; exit 1 }\n`;
+    const ps1 = PS_RAWPRINT +
+      `$bytes = [System.IO.File]::ReadAllBytes("${tmpBin.replace(/\\/g, '\\\\')}")\n` +
+      `$ok    = [RawPrint]::Send("${printerName}", $bytes)\n` +
+      `if (-not $ok) { Write-Error "Impresora no respondio: ${printerName}"; exit 1 }\n`;
 
-  writeFileSync(tmpPs, ps1, { encoding: 'utf8' });
+    writeFileSync(tmpPs, ps1, { encoding: 'utf8' });
 
-  try {
-    execFileSync('powershell.exe',
+    execFile('powershell.exe',
       ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmpPs],
-      { timeout: 15000 });
-  } finally {
-    try { unlinkSync(tmpBin); } catch {}
-    try { unlinkSync(tmpPs);  } catch {}
-  }
+      { timeout: 15000 },
+      (err) => {
+        try { unlinkSync(tmpBin); } catch {}
+        try { unlinkSync(tmpPs);  } catch {}
+        if (err) reject(err); else resolve();
+      });
+  });
 }
 
 function ts() {

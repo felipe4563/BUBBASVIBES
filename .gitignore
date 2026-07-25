@@ -1,6 +1,11 @@
-# Agente de impresión térmica (compilado localmente, config es per-location)
-print-agent/*
-!print-agent/agent.js
+# Agente de impresión térmica — el código fuente se sube como respaldo;
+# lo generado/local a cada PC no (se reconstruye con "npm run build").
+print-agent/node_modules/
+print-agent/dist/
+print-agent/config.json
+print-agent/agente.lock
+print-agent/agente.log
+print-agent-test/
 node_modules/
 
 # Variables de entorno para docker-compose

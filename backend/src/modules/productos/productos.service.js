@@ -22,8 +22,15 @@ async function actualizarCategoria(id, { nombre, imagen, activo }) {
 async function eliminarCategoria(id) {
   const cat = await Categoria.findByPk(id);
   if (!cat) throw Object.assign(new Error('Categoría no encontrada'), { status: 404 });
-  const productos = await Producto.count({ where: { categoria_id: id } });
-  if (productos > 0) throw Object.assign(new Error('La categoría tiene productos asignados'), { status: 409 });
+  const productos = await Producto.findAll({ where: { categoria_id: id }, attributes: ['nombre', 'activo'] });
+  if (productos.length > 0) {
+    // Un producto "eliminado" solo se desactiva (para no perder su historial de
+    // ventas), así que puede seguir bloqueando la categoría sin aparecer en el
+    // listado normal (que solo muestra activos) — se listan por nombre para que
+    // quede claro cuál reasignar, en vez de un mensaje genérico.
+    const detalle = productos.map((p) => p.nombre + (p.activo ? '' : ' (inactivo)')).join(', ');
+    throw Object.assign(new Error(`La categoría tiene productos asignados: ${detalle}. Reasígnalos a otra categoría antes de eliminarla.`), { status: 409 });
+  }
   await cat.destroy();
 }
 
@@ -82,8 +89,9 @@ async function eliminarGrupoOpciones(id) {
 
 // --- Productos ---
 
-async function listarProductos({ categoria_id, solo_vendibles, solo_disponibles, order_by } = {}, alcance) {
-  const where = { activo: 1 };
+async function listarProductos({ categoria_id, solo_vendibles, solo_disponibles, order_by, incluir_inactivos } = {}, alcance) {
+  const where = {};
+  if (!(incluir_inactivos === 'true' || incluir_inactivos === true)) where.activo = 1;
   if (categoria_id) where.categoria_id = categoria_id;
   if (solo_vendibles === 'true' || solo_vendibles === true) where.es_vendible = 1;
 

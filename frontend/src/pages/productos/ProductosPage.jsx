@@ -228,12 +228,16 @@ function TabProductos({ puedeCrear, puedeEditar, puedeEliminar }) {
   const [modal, setModal] = useState(null);
   const [confirmEliminar, setConfirmEliminar] = useState(null);
   const [filtroCategoria, setFiltroCategoria] = useState('');
+  const [mostrarInactivos, setMostrarInactivos] = useState(false);
 
   const { data: categorias = [] } = useQuery({ queryKey: ['categorias'], queryFn: getCategorias });
   const { data: gruposOpciones = [] } = useQuery({ queryKey: ['grupos-opciones'], queryFn: getGruposOpciones });
   const { data: productos = [], isLoading } = useQuery({
-    queryKey: ['productos', filtroCategoria],
-    queryFn: () => getProductos(filtroCategoria ? { categoria_id: filtroCategoria } : {}),
+    queryKey: ['productos', filtroCategoria, mostrarInactivos],
+    queryFn: () => getProductos({
+      ...(filtroCategoria ? { categoria_id: filtroCategoria } : {}),
+      ...(mostrarInactivos ? { incluir_inactivos: true } : {}),
+    }),
   });
 
   const guardar = useMutation({
@@ -249,14 +253,25 @@ function TabProductos({ puedeCrear, puedeEditar, puedeEliminar }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <select
-          value={filtroCategoria}
-          onChange={e => setFiltroCategoria(e.target.value)}
-          className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="">Todas las categorías</option>
-          {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-        </select>
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            value={filtroCategoria}
+            onChange={e => setFiltroCategoria(e.target.value)}
+            className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Todas las categorías</option>
+            {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={mostrarInactivos}
+              onChange={e => setMostrarInactivos(e.target.checked)}
+              className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+            />
+            Mostrar inactivos
+          </label>
+        </div>
         {puedeCrear && (
           <button
             onClick={() => setModal({ modo: 'crear' })}
@@ -313,7 +328,14 @@ function TabProductos({ puedeCrear, puedeEditar, puedeEliminar }) {
                         </div>
                       )}
                       <div>
-                        <p className="font-medium text-gray-800 dark:text-gray-100">{prod.nombre}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-gray-800 dark:text-gray-100">{prod.nombre}</p>
+                          {!prod.activo && (
+                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">
+                              Inactivo
+                            </span>
+                          )}
+                        </div>
                         {prod.codigo && <p className="text-xs text-gray-400">{prod.codigo}</p>}
                       </div>
                     </div>

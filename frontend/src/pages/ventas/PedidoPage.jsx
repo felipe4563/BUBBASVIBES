@@ -10,11 +10,11 @@ import { getProductos } from '../../api/productos';
 import { getCategorias } from '../../api/categorias';
 import { getConfiguracion, BASE_URL } from '../../api/configuracion';
 import { useAuth } from '../../hooks/useAuth';
-import { imprimirLocal } from '../../utils/impresionLocal';
 import { usePermisos } from '../../hooks/usePermisos';
 import Modal from '../../components/ui/Modal';
-import ModalPagoQr from './components/ModalPagoQr';
-import { imprimirTicketVenta }  from '../../utils/ticketVenta';
+import SelectorPasosModal from './components/SelectorPasosModal';
+import { imprimirTicketVenta } from '../../utils/ticketVenta';
+import { imprimirTicketCocina } from '../../utils/ticketCocina';
 
 const API_BASE = BASE_URL;
 
@@ -35,6 +35,7 @@ export default function PedidoPage() {
   const [tabMobile, setTabMobile] = useState('productos'); // 'productos' | 'orden'
   const [notaEditando, setNotaEditando] = useState(null); // item.id o null
   const [textoNota, setTextoNota] = useState('');
+  const [selectorOpcion, setSelectorOpcion] = useState(null); // producto con pasos, o null
 
   // Pedido
   const { data: pedido, isLoading: cargandoPedido } = useQuery({
@@ -76,7 +77,7 @@ export default function PedidoPage() {
 
   // Mutaciones
   const agregar = useMutation({
-    mutationFn: ({ producto_id }) => agregarItem(id, { producto_id, cantidad: 1 }),
+    mutationFn: ({ producto_id, selecciones = [] }) => agregarItem(id, { producto_id, cantidad: 1, selecciones }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['venta', id] }),
   });
 
@@ -100,12 +101,24 @@ export default function PedidoPage() {
 
   function handleProducto(prod) {
     if (!puedeCrear || !esPendiente) return;
+    if (prod.pasos?.length) {
+      setSelectorOpcion(prod);
+      return;
+    }
     const existente = itemsPorProducto[prod.id];
     if (existente) {
       actualizar.mutate({ item_id: existente.id, cantidad: existente.cantidad + 1 });
     } else {
-      agregar.mutate({ producto_id: prod.id });
+      agregar.mutate({ producto_id: prod.id, selecciones: [] });
     }
+  }
+
+  function confirmarSelecciones(selecciones) {
+    agregar.mutate({
+      producto_id: selectorOpcion.id,
+      selecciones: selecciones.map((s) => ({ grupo_opciones_id: s.grupo_opciones_id, opcion_id: s.opcion_id })),
+    });
+    setSelectorOpcion(null);
   }
 
   function incrementar(item) {
@@ -534,6 +547,14 @@ export default function PedidoPage() {
           }}
         />
       )}
+
+      {selectorOpcion && (
+        <SelectorPasosModal
+          producto={selectorOpcion}
+          onConfirmar={confirmarSelecciones}
+          onClose={() => setSelectorOpcion(null)}
+        />
+      )}
     </div>
   );
 }
@@ -543,30 +564,38 @@ export default function PedidoPage() {
 function ModalCobrar({ total, pedidoId, pedido, config, onClose, onExito }) {
   const [metodo, setMetodo] = useState('efectivo');
   const [error, setError] = useState(null);
-  const [pagoQr, setPagoQr] = useState(null);
+  const [ventaCompletada, setVentaCompletada] = useState(null);
 
   const cobrar = useMutation({
     mutationFn: () => cobrarVenta(pedidoId, { metodo_pago: metodo, monto_recibido: total }),
-    onSuccess: (resultado) => {
-      if (resultado.pago_qr) {
-        setPagoQr(resultado.pago_qr);
-      } else {
-        imprimirLocal(resultado.datos_impresion);
-        onExito();
-      }
-    },
+    onSuccess: (resultado) => setVentaCompletada(resultado),
     onError: (err) => setError(err?.response?.data?.mensaje ?? 'Error al cobrar'),
   });
 
-  if (pagoQr) {
+  if (ventaCompletada) {
     return (
-      <ModalPagoQr
-        pedidoId={pedidoId}
-        pagoQr={pagoQr}
-        onClose={onClose}
-        onCompletado={() => onExito()}
-        onReintentar={() => cobrar.mutate()}
-      />
+      <Modal titulo="Venta completada" onClose={onExito} ancho="max-w-sm">
+        <div className="space-y-4 text-center">
+          <p className="text-sm text-gray-600 dark:text-gray-300">Venta registrada correctamente.</p>
+          <div className="flex justify-center gap-3">
+            <button
+              onClick={() => {
+                imprimirTicketVenta(ventaCompletada, { metodo_pago: metodo, cambio: 0 }, config);
+                imprimirTicketCocina(ventaCompletada, config);
+              }}
+              className="px-4 py-2 rounded-xl text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors"
+            >
+              Imprimir
+            </button>
+            <button
+              onClick={onExito}
+              className="px-4 py-2 rounded-xl text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </Modal>
     );
   }
 
@@ -601,6 +630,12 @@ function ModalCobrar({ total, pedidoId, pedido, config, onClose, onExito }) {
             ))}
           </div>
         </div>
+
+        {metodo === 'qr' && (
+          config.qr_pago
+            ? <img src={`${BASE_URL}${config.qr_pago}`} alt="QR de pago" className="mx-auto w-48 h-48 object-contain rounded-xl border border-gray-200 dark:border-gray-700" />
+            : <p className="text-xs text-amber-600 dark:text-amber-400 text-center">No hay un QR de pago configurado (ve a Configuración → Pagos).</p>
+        )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 

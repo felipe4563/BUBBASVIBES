@@ -1,9 +1,9 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2, Building2, Grid3x3, Users, AlertCircle, RefreshCw, ChefHat, CheckCircle2, Store, Upload, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Building2, Grid3x3, Users, AlertCircle, RefreshCw, ChefHat, CheckCircle2, Store, Upload, X, Wallet } from 'lucide-react';
 import { getAreas, crearArea, actualizarArea, eliminarArea } from '../../api/areas';
 import { getMesas, crearMesa, actualizarMesa, eliminarMesa } from '../../api/mesas';
-import { getConfiguracion, actualizarConfiguracion, subirLogo, logoSrc } from '../../api/configuracion';
+import { getConfiguracion, actualizarConfiguracion, subirLogo, subirQrPago, logoSrc } from '../../api/configuracion';
 import { usePermisos } from '../../hooks/usePermisos';
 import Modal from '../../components/ui/Modal';
 
@@ -12,6 +12,7 @@ const TABS = [
   { id: 'areas',   label: 'Áreas',       Icono: Building2 },
   { id: 'mesas',   label: 'Mesas',       Icono: Grid3x3 },
   { id: 'flujo',   label: 'Flujo Cocina',Icono: ChefHat },
+  { id: 'pagos',   label: 'Pagos',       Icono: Wallet },
 ];
 
 export default function ConfiguracionPage() {
@@ -55,6 +56,7 @@ export default function ConfiguracionPage() {
       {tab === 'areas'   && <TabAreas   puedeEditar={puedeEditar} />}
       {tab === 'mesas'   && <TabMesas   puedeEditar={puedeEditar} />}
       {tab === 'flujo'   && <TabFlujo   puedeEditar={puedeEditar} />}
+      {tab === 'pagos'   && <TabPagos   puedeEditar={puedeEditar} />}
     </div>
   );
 }
@@ -356,6 +358,95 @@ function TabFlujo({ puedeEditar }) {
       {!puedeEditar && (
         <p className="text-xs text-gray-400">No tienes permiso para cambiar esta configuración.</p>
       )}
+    </div>
+  );
+}
+
+/* ─── Tab Pagos ──────────────────────────────────────────────────────────── */
+
+function TabPagos({ puedeEditar }) {
+  const qc = useQueryClient();
+  const qrRef = useRef(null);
+  const [subiendo, setSubiendo] = useState(false);
+  const [errorQr, setErrorQr] = useState(null);
+  const [guardado, setGuardado] = useState(false);
+
+  const { data: config = {}, isLoading } = useQuery({ queryKey: ['configuracion'], queryFn: getConfiguracion });
+
+  const guardar = useMutation({
+    mutationFn: (datos) => actualizarConfiguracion(datos),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['configuracion'] });
+      setGuardado(true);
+      setTimeout(() => setGuardado(false), 2000);
+    },
+  });
+
+  async function handleQr(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setSubiendo(true);
+    setErrorQr(null);
+    try {
+      const url = await subirQrPago(file);
+      guardar.mutate({ qr_pago: url });
+    } catch {
+      setErrorQr('No se pudo subir la imagen');
+    } finally {
+      setSubiendo(false);
+      if (qrRef.current) qrRef.current.value = '';
+    }
+  }
+
+  function quitarQr() {
+    guardar.mutate({ qr_pago: '' });
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-gray-400 py-8">
+        <RefreshCw className="w-4 h-4 animate-spin" /><span className="text-sm">Cargando...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">QR de pago (estático)</p>
+        <p className="text-xs text-gray-400 mb-3">Esta imagen se muestra en el POS cuando el cajero elige "QR / Transferencia". La confirmación del pago es manual.</p>
+
+        {config.qr_pago ? (
+          <div className="flex items-center gap-3">
+            <img src={logoSrc(config.qr_pago)} alt="QR de pago" className="w-32 h-32 object-contain rounded-xl border border-gray-200 dark:border-gray-700" />
+            {puedeEditar && (
+              <button onClick={quitarQr} className="text-sm text-red-500 hover:text-red-600">Quitar</button>
+            )}
+          </div>
+        ) : (
+          <div className="w-32 h-32 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 flex items-center justify-center text-xs text-gray-400">
+            Sin imagen
+          </div>
+        )}
+
+        {puedeEditar && (
+          <>
+            <input ref={qrRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleQr} className="hidden" />
+            <button
+              onClick={() => qrRef.current?.click()}
+              disabled={subiendo}
+              className="mt-3 px-4 py-2 rounded-xl text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors disabled:opacity-60"
+            >
+              {subiendo ? 'Subiendo...' : (config.qr_pago ? 'Cambiar imagen' : 'Subir imagen')}
+            </button>
+          </>
+        )}
+        {errorQr && <p className="text-sm text-red-600 mt-2">{errorQr}</p>}
+        {guardado && <p className="text-sm text-green-600 mt-2">Guardado correctamente</p>}
+        {!puedeEditar && (
+          <p className="text-xs text-gray-400 mt-2">No tienes permiso para editar la configuración.</p>
+        )}
+      </div>
     </div>
   );
 }

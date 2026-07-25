@@ -46,6 +46,16 @@ export default function SelectorPasosModal({ producto, onConfirmar, onClose }) {
     setIndice((i) => i + 1);
   }
 
+  // Defensivo: si pasosVisibles se encoge entre renders (p. ej. dos pasos
+  // comparten el mismo disparador y uno deja de ser válido), indice puede
+  // quedar apuntando fuera de rango. Lo recortamos antes de que el efecto de
+  // abajo lo confunda con "no quedan pasos" y descarte las selecciones.
+  useEffect(() => {
+    if (pasosVisibles.length > 0 && indice >= pasosVisibles.length) {
+      setIndice(pasosVisibles.length - 1);
+    }
+  }, [pasosVisibles.length, indice]);
+
   useEffect(() => {
     if (!paso) onConfirmar([]);
   }, [paso, onConfirmar]);

@@ -89,4 +89,28 @@ describe('Ventas — selecciones con precio_delta', () => {
     expect(res.status).toBe(400);
     expect(res.body.mensaje).toMatch(/Tamaño Selecciones Test/);
   });
+
+  it('ignora una selección con grupo_opciones_id que no corresponde a ningún paso del producto', async () => {
+    const res = await request(app)
+      .post('/api/v1/ventas/completa')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        tipo: 'llevar', metodo_pago: 'efectivo', monto_recibido: 28, sesion_caja_id: sesionId,
+        items: [{
+          producto_id: productoId,
+          cantidad: 1,
+          selecciones: [
+            { grupo_opciones_id: grupoTamId, opcion_id: opGrandeId },
+            { grupo_opciones_id: 999999, opcion_id: 888888 },
+          ],
+        }],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.datos.total).toBe('28.00');
+    const detalleId = res.body.datos.detalles[0].id;
+    const opciones = await DetallePedidoOpciones.findAll({ where: { detalle_pedido_id: detalleId } });
+    expect(opciones).toHaveLength(1);
+    expect(opciones[0].nombre_opcion).toBe('Grande');
+  });
 });

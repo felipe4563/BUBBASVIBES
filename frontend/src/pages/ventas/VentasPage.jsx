@@ -6,19 +6,19 @@ import {
   Plus, Minus, Trash2, CreditCard, Wallet, ChevronRight, LayoutGrid,
 } from 'lucide-react';
 import { getMesas } from '../../api/mesas';
-import { getVentas, crearVentaCompleta, cobrarVenta } from '../../api/ventas';
+import { getVentas, crearVentaCompleta } from '../../api/ventas';
 import { getEstadoCajas } from '../../api/caja';
 import { getProductos } from '../../api/productos';
 import { getCategorias } from '../../api/categorias';
-import { BASE_URL } from '../../api/configuracion';
+import { BASE_URL, getConfiguracion } from '../../api/configuracion';
 import { usePermisos } from '../../hooks/usePermisos';
 import { useAuth } from '../../hooks/useAuth';
-import { imprimirLocal } from '../../utils/impresionLocal';
 import ModalLlevar from './components/ModalLlevar';
 import ModalMesas from './components/ModalMesas';
 import CategoriasBar from './components/CategoriasBar';
-import ModalPagoQr from './components/ModalPagoQr';
-import SelectorOpcionModal from './components/SelectorOpcionModal';
+import SelectorPasosModal from './components/SelectorPasosModal';
+import { imprimirTicketVenta } from '../../utils/ticketVenta';
+import { imprimirTicketCocina } from '../../utils/ticketCocina';
 import Modal from '../../components/ui/Modal';
 import socket from '../../socket';
 
@@ -96,44 +96,51 @@ export default function VentasPage() {
   const totalItems = carrito.reduce((sum, it) => sum + it.cantidad, 0);
   const puedeCobrarAhora = totalItems > 0 && (mesaSeleccionada != null || modoLlevar != null);
 
-  function agregarAlCarrito(prod, nota) {
+  function agregarAlCarrito(prod, { selecciones = [], nota = null } = {}) {
+    const precio = parseFloat(prod.precio) + selecciones.reduce((s, o) => s + parseFloat(o.precio_delta || 0), 0);
+    const clave = JSON.stringify(selecciones.map((s) => s.opcion_id).sort());
     setCarrito((prev) => {
-      const existente = prev.find((it) => it.producto_id === prod.id && it.nota === nota);
+      const existente = prev.find((it) => it.producto_id === prod.id && JSON.stringify(it.selecciones.map((s) => s.opcion_id).sort()) === clave && it.nota === nota);
       if (existente) {
         return prev.map((it) => it === existente ? { ...it, cantidad: it.cantidad + 1 } : it);
       }
-      return [...prev, { producto_id: prod.id, nombre: prod.nombre, precio: parseFloat(prod.precio), cantidad: 1, nota }];
+      return [...prev, { producto_id: prod.id, nombre: prod.nombre, precio, cantidad: 1, nota, selecciones }];
     });
   }
 
   function handleProducto(prod) {
     if (!puedeCrear) return;
-    if (prod.grupo_opciones) {
+    if (prod.pasos && prod.pasos.length > 0) {
       setSelectorOpcion(prod);
       return;
     }
-    agregarAlCarrito(prod, null);
+    agregarAlCarrito(prod);
   }
 
-  function elegirOpcion(nota) {
-    agregarAlCarrito(selectorOpcion, nota);
+  function confirmarSelecciones(selecciones) {
+    agregarAlCarrito(selectorOpcion, { selecciones });
     setSelectorOpcion(null);
   }
 
-  function incrementar(producto_id, nota) {
-    setCarrito((prev) => prev.map((it) => it.producto_id === producto_id && it.nota === nota ? { ...it, cantidad: it.cantidad + 1 } : it));
+  function claveCarrito(it) {
+    return `${it.producto_id}|${JSON.stringify(it.selecciones.map((s) => s.opcion_id).sort())}|${it.nota ?? ''}`;
   }
 
-  function decrementar(producto_id, nota) {
+  function incrementar(clave) {
+    setCarrito((prev) => prev.map((it) => claveCarrito(it) === clave ? { ...it, cantidad: it.cantidad + 1 } : it));
+  }
+
+  function decrementar(clave) {
     setCarrito((prev) => {
-      const item = prev.find((it) => it.producto_id === producto_id && it.nota === nota);
+      const item = prev.find((it) => claveCarrito(it) === clave);
+      if (!item) return prev;
       if (item.cantidad <= 1) return prev.filter((it) => it !== item);
       return prev.map((it) => it === item ? { ...it, cantidad: it.cantidad - 1 } : it);
     });
   }
 
-  function quitar(producto_id, nota) {
-    setCarrito((prev) => prev.filter((it) => !(it.producto_id === producto_id && it.nota === nota)));
+  function quitar(clave) {
+    setCarrito((prev) => prev.filter((it) => claveCarrito(it) !== clave));
   }
 
   function handleClickMesaDisponible(mesa) {
@@ -285,27 +292,35 @@ export default function VentasPage() {
                   <p className="text-xs">Toca un producto para agregarlo</p>
                 </div>
               ) : (
-                carrito.map((it) => (
-                  <div key={`${it.producto_id}|${it.nota ?? ''}`} className="px-4 py-2.5 flex items-center gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{it.nombre}</p>
-                      {it.nota && <p className="text-xs text-amber-600 dark:text-amber-400 truncate">{it.nota}</p>}
-                      <p className="text-xs text-gray-400">Bs {it.precio.toFixed(2)} c/u</p>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button onClick={() => decrementar(it.producto_id, it.nota)} className="w-6 h-6 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center justify-center">
-                        <Minus className="w-3 h-3" />
+                carrito.map((it) => {
+                  const clave = claveCarrito(it);
+                  return (
+                    <div key={clave} className="px-4 py-2.5 flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{it.nombre}</p>
+                        {it.selecciones?.length > 0 && (
+                          <p className="text-xs text-blue-600 dark:text-blue-400 truncate">
+                            {it.selecciones.map((s) => s.nombre_opcion).join(' · ')}
+                          </p>
+                        )}
+                        {it.nota && <p className="text-xs text-amber-600 dark:text-amber-400 truncate">{it.nota}</p>}
+                        <p className="text-xs text-gray-400">Bs {it.precio.toFixed(2)} c/u</p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={() => decrementar(clave)} className="w-6 h-6 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center justify-center">
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="w-5 text-center text-sm font-semibold text-gray-800 dark:text-gray-100">{it.cantidad}</span>
+                        <button onClick={() => incrementar(clave)} className="w-6 h-6 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center justify-center">
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <button onClick={() => quitar(clave)} className="shrink-0 p-1 text-gray-300 dark:text-gray-600 hover:text-red-500">
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
-                      <span className="w-5 text-center text-sm font-semibold text-gray-800 dark:text-gray-100">{it.cantidad}</span>
-                      <button onClick={() => incrementar(it.producto_id, it.nota)} className="w-6 h-6 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center justify-center">
-                        <Plus className="w-3 h-3" />
-                      </button>
                     </div>
-                    <button onClick={() => quitar(it.producto_id, it.nota)} className="shrink-0 p-1 text-gray-300 dark:text-gray-600 hover:text-red-500">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
             <div className="px-4 py-3 flex items-center justify-between bg-gray-50 dark:bg-gray-700/40 border-t border-gray-100 dark:border-gray-700">
@@ -431,9 +446,9 @@ export default function VentasPage() {
       )}
 
       {selectorOpcion && (
-        <SelectorOpcionModal
+        <SelectorPasosModal
           producto={selectorOpcion}
-          onElegir={elegirOpcion}
+          onConfirmar={confirmarSelecciones}
           onClose={() => setSelectorOpcion(null)}
         />
       )}
@@ -446,44 +461,55 @@ export default function VentasPage() {
 function ModalCobrar({ total, carrito, tipo, mesaId, nombreCliente, sesionCajaId, onClose, onExito }) {
   const [metodo, setMetodo] = useState('efectivo');
   const [error, setError] = useState(null);
-  const [pagoQrEstado, setPagoQrEstado] = useState(null); // { pedidoId, pagoQr } | null
+  const [ventaCompletada, setVentaCompletada] = useState(null);
+
+  const { data: config = {} } = useQuery({ queryKey: ['configuracion'], queryFn: getConfiguracion });
 
   const iniciar = useMutation({
     mutationFn: () => crearVentaCompleta({
       tipo,
       mesa_id: tipo === 'mesa' ? mesaId : undefined,
       nombre_cliente: nombreCliente ?? undefined,
-      items: carrito.map((it) => ({ producto_id: it.producto_id, cantidad: it.cantidad, nota: it.nota })),
+      items: carrito.map((it) => ({
+        producto_id: it.producto_id,
+        cantidad: it.cantidad,
+        nota: it.nota,
+        selecciones: it.selecciones.map((s) => ({ grupo_opciones_id: s.grupo_opciones_id, opcion_id: s.opcion_id })),
+      })),
       metodo_pago: metodo,
       monto_recibido: total,
       sesion_caja_id: sesionCajaId,
     }),
     onSuccess: (resultado) => {
-      if (resultado.pago_qr) {
-        setPagoQrEstado({ pedidoId: resultado.pedido.id, pagoQr: resultado.pago_qr });
-      } else {
-        imprimirLocal(resultado.datos_impresion);
-        onExito();
-      }
+      setVentaCompletada(resultado);
     },
     onError: (err) => setError(err?.response?.data?.mensaje ?? 'Error al cobrar'),
   });
 
-  const reintentar = useMutation({
-    mutationFn: () => cobrarVenta(pagoQrEstado.pedidoId, { metodo_pago: 'qr', monto_recibido: total }),
-    onSuccess: (resultado) => setPagoQrEstado({ pedidoId: resultado.pedido.id, pagoQr: resultado.pago_qr }),
-    onError: (err) => setError(err?.response?.data?.mensaje ?? 'Error al generar el QR'),
-  });
-
-  if (pagoQrEstado) {
+  if (ventaCompletada) {
     return (
-      <ModalPagoQr
-        pedidoId={pagoQrEstado.pedidoId}
-        pagoQr={pagoQrEstado.pagoQr}
-        onClose={onClose}
-        onCompletado={() => onExito()}
-        onReintentar={() => reintentar.mutate()}
-      />
+      <Modal titulo="Venta completada" onClose={onExito} ancho="max-w-sm">
+        <div className="space-y-4 text-center">
+          <p className="text-sm text-gray-600 dark:text-gray-300">Venta registrada correctamente.</p>
+          <div className="flex justify-center gap-3">
+            <button
+              onClick={() => {
+                imprimirTicketVenta(ventaCompletada, { metodo_pago: metodo, cambio: 0 }, config);
+                imprimirTicketCocina(ventaCompletada, config);
+              }}
+              className="px-4 py-2 rounded-xl text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors"
+            >
+              Imprimir
+            </button>
+            <button
+              onClick={onExito}
+              className="px-4 py-2 rounded-xl text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </Modal>
     );
   }
 
@@ -511,6 +537,12 @@ function ModalCobrar({ total, carrito, tipo, mesaId, nombreCliente, sesionCajaId
             ))}
           </div>
         </div>
+
+        {metodo === 'qr' && (
+          config.qr_pago
+            ? <img src={`${BASE_URL}${config.qr_pago}`} alt="QR de pago" className="mx-auto w-48 h-48 object-contain rounded-xl border border-gray-200 dark:border-gray-700" />
+            : <p className="text-xs text-amber-600 dark:text-amber-400 text-center">No hay un QR de pago configurado (ve a Configuración → Pagos).</p>
+        )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 

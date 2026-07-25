@@ -36,9 +36,9 @@ async function crearCompleta(req, res, next) {
 
 async function agregarItem(req, res, next) {
   try {
-    const { producto_id, cantidad, nota } = req.body;
+    const { producto_id, cantidad, nota, selecciones } = req.body;
     if (!producto_id) return res.status(400).json({ ok: false, mensaje: 'producto_id es requerido' });
-    res.status(201).json({ ok: true, datos: await svc.agregarItem(req.params.id, { producto_id, cantidad, nota }, _alcance(req)) });
+    res.status(201).json({ ok: true, datos: await svc.agregarItem(req.params.id, { producto_id, cantidad, nota, selecciones }, _alcance(req)) });
   } catch (err) { next(err); }
 }
 

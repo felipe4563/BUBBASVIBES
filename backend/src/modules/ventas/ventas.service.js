@@ -1,10 +1,10 @@
 const { Op } = require('sequelize');
 const {
-  Pedido, DetallePedido, Mesa, Producto, Cliente, SesionCaja, LibroCaja, Configuracion, PagoQr, sequelize,
+  Pedido, DetallePedido, DetallePedidoOpciones, Mesa, Producto, ProductoGrupoOpciones, GrupoOpciones, Opcion,
+  Cliente, SesionCaja, LibroCaja, Configuracion, sequelize,
 } = require('../../models');
 const { emitir } = require('../../socket');
 const { ajustarStockSucursal } = require('../inventario/stock.service');
-const codepayClient = require('../../integrations/codepay/codepay.client');
 
 // Rango del día calendario en hora de Bolivia (-04:00), sin depender de la
 // zona horaria del proceso de Node/VPS.
@@ -16,12 +16,76 @@ function _rangoDiaBolivia() {
   };
 }
 
+/**
+ * Valida las selecciones enviadas para un producto contra sus pasos
+ * configurados y devuelve el precio final (base + deltas) junto con el
+ * snapshot a persistir en detalle_pedido_opciones. Nunca confía en un precio
+ * mandado por el cliente.
+ */
+async function _validarYCalcularSelecciones(producto, selecciones = []) {
+  const pasos = await ProductoGrupoOpciones.findAll({
+    where: { producto_id: producto.id },
+    include: [{ model: GrupoOpciones, as: 'grupo_opciones', include: [{ model: Opcion, as: 'opciones' }] }],
+    order: [['orden', 'ASC']],
+  });
+
+  const opcionIdPorGrupo = new Map();
+  for (const sel of selecciones) opcionIdPorGrupo.set(sel.grupo_opciones_id, sel.opcion_id);
+  const opcionesElegidasIds = new Set(selecciones.map((s) => s.opcion_id));
+
+  let precio = parseFloat(producto.precio);
+  const detalleOpciones = [];
+
+  for (const paso of pasos) {
+    const disparada = !paso.disparado_por_opcion_id || opcionesElegidasIds.has(paso.disparado_por_opcion_id);
+    if (!disparada) continue;
+
+    const opcionId = opcionIdPorGrupo.get(paso.grupo_opciones_id);
+    if (!opcionId) {
+      if (paso.obligatorio) {
+        throw Object.assign(new Error(`Falta seleccionar una opción de "${paso.grupo_opciones.nombre}"`), { status: 400 });
+      }
+      continue;
+    }
+
+    const opcion = paso.grupo_opciones.opciones.find((o) => o.id === opcionId);
+    if (!opcion) {
+      throw Object.assign(new Error(`La opción elegida no pertenece a "${paso.grupo_opciones.nombre}"`), { status: 400 });
+    }
+
+    precio += parseFloat(opcion.precio_delta);
+    detalleOpciones.push({
+      grupo_opciones_id: paso.grupo_opciones_id,
+      opcion_id: opcion.id,
+      nombre_grupo: paso.grupo_opciones.nombre,
+      nombre_opcion: opcion.nombre,
+      precio_delta: opcion.precio_delta,
+    });
+  }
+
+  return { precio, detalleOpciones };
+}
+
+async function _crearDetalleConOpciones({ pedido_id, producto_id, cantidad, precio, nota, detalleOpciones }, transaction) {
+  const detalle = await DetallePedido.create({ pedido_id, producto_id, cantidad, precio, nota }, { transaction });
+  if (detalleOpciones.length) {
+    await DetallePedidoOpciones.bulkCreate(
+      detalleOpciones.map((o) => ({ ...o, detalle_pedido_id: detalle.id })),
+      { transaction }
+    );
+  }
+  return detalle;
+}
+
 const INCLUDE_PEDIDO_COMPLETO = [
   { model: Mesa, as: 'mesa', attributes: ['id', 'nombre', 'estado'] },
   { model: Cliente, as: 'cliente', attributes: ['id', 'nombre', 'numero_documento'] },
   {
     model: DetallePedido, as: 'detalles',
-    include: [{ model: Producto, as: 'producto', attributes: ['id', 'nombre', 'precio'] }],
+    include: [
+      { model: Producto, as: 'producto', attributes: ['id', 'nombre', 'precio'] },
+      { model: DetallePedidoOpciones, as: 'opciones' },
+    ],
   },
 ];
 
@@ -319,7 +383,8 @@ async function crearCompleta({ tipo, mesa_id, nombre_cliente, documento_cliente,
     const producto = await Producto.findByPk(item.producto_id);
     if (!producto) throw Object.assign(new Error('Producto no encontrado'), { status: 404 });
     if (!producto.activo || !producto.es_vendible) throw Object.assign(new Error('Producto no disponible'), { status: 409 });
-    productos.push({ item, producto });
+    const { precio, detalleOpciones } = await _validarYCalcularSelecciones(producto, item.selecciones);
+    productos.push({ item, producto, precio, detalleOpciones });
   }
 
   let mesa = null;
@@ -332,7 +397,7 @@ async function crearCompleta({ tipo, mesa_id, nombre_cliente, documento_cliente,
     throw Object.assign(new Error("tipo debe ser 'mesa' o 'llevar'"), { status: 400 });
   }
 
-  const total = productos.reduce((sum, { item, producto }) => sum + item.cantidad * parseFloat(producto.precio), 0);
+  const total = productos.reduce((sum, { item, precio }) => sum + item.cantidad * precio, 0);
   const monto_neto = total - parseFloat(descuento) + parseFloat(propina);
 
   if (metodo_pago === 'efectivo') {
@@ -355,10 +420,10 @@ async function crearCompleta({ tipo, mesa_id, nombre_cliente, documento_cliente,
     }, { transaction: t });
 
     const detalles = [];
-    for (const { item, producto } of productos) {
-      await DetallePedido.create({
-        pedido_id: pedido.id, producto_id: item.producto_id, cantidad: item.cantidad, precio: producto.precio, nota: item.nota,
-      }, { transaction: t });
+    for (const { item, precio, detalleOpciones } of productos) {
+      await _crearDetalleConOpciones({
+        pedido_id: pedido.id, producto_id: item.producto_id, cantidad: item.cantidad, precio, nota: item.nota, detalleOpciones,
+      }, t);
       detalles.push({ producto_id: item.producto_id, cantidad: item.cantidad });
     }
 
@@ -382,7 +447,7 @@ async function crearCompleta({ tipo, mesa_id, nombre_cliente, documento_cliente,
   return { ...creado.toJSON(), datos_impresion };
 }
 
-async function agregarItem(pedido_id, { producto_id, cantidad = 1, nota }, alcance) {
+async function agregarItem(pedido_id, { producto_id, cantidad = 1, nota, selecciones }, alcance) {
   const pedido = await Pedido.findByPk(pedido_id);
   if (!pedido) throw Object.assign(new Error('Pedido no encontrado'), { status: 404 });
   _verificarAlcance(pedido, alcance);
@@ -392,13 +457,8 @@ async function agregarItem(pedido_id, { producto_id, cantidad = 1, nota }, alcan
   if (!producto) throw Object.assign(new Error('Producto no encontrado'), { status: 404 });
   if (!producto.activo || !producto.es_vendible) throw Object.assign(new Error('Producto no disponible'), { status: 409 });
 
-  const item = await DetallePedido.create({
-    pedido_id,
-    producto_id,
-    cantidad,
-    precio: producto.precio,
-    nota,
-  });
+  const { precio, detalleOpciones } = await _validarYCalcularSelecciones(producto, selecciones);
+  const item = await _crearDetalleConOpciones({ pedido_id, producto_id, cantidad, precio, nota, detalleOpciones });
 
   await _recalcularTotal(pedido_id);
   emitir('restaurante:actualizar', { tipo: 'pedido_items' });

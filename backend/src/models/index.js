@@ -20,10 +20,12 @@ const Categoria = require('./Categoria');
 const Producto = require('./Producto');
 const GrupoOpciones = require('./GrupoOpciones');
 const Opcion = require('./Opcion');
+const ProductoGrupoOpciones = require('./ProductoGrupoOpciones');
 const Cliente = require('./Cliente');
 const SesionCaja = require('./SesionCaja');
 const Pedido = require('./Pedido');
 const DetallePedido = require('./DetallePedido');
+const DetallePedidoOpciones = require('./DetallePedidoOpciones');
 const DetalleArqueo = require('./DetalleArqueo');
 const Gasto = require('./Gasto');
 const LibroCaja = require('./LibroCaja');
@@ -36,7 +38,6 @@ const Reservacion = require('./Reservacion');
 const Sucursal = require('./Sucursal');
 const ProductoStockSucursal = require('./ProductoStockSucursal');
 const Caja = require('./Caja');
-const PagoQr = require('./PagoQr');
 
 // Roles y Permisos
 Rol.belongsToMany(Permiso, { through: RolesPermisos, foreignKey: 'rol_id', otherKey: 'permiso_id', as: 'permisos' });
@@ -65,8 +66,12 @@ Categoria.hasMany(Producto, { foreignKey: 'categoria_id', as: 'productos' });
 // Opciones de producto
 GrupoOpciones.hasMany(Opcion, { foreignKey: 'grupo_opciones_id', as: 'opciones' });
 Opcion.belongsTo(GrupoOpciones, { foreignKey: 'grupo_opciones_id', as: 'grupo' });
-Producto.belongsTo(GrupoOpciones, { foreignKey: 'grupo_opciones_id', as: 'grupo_opciones' });
-GrupoOpciones.hasMany(Producto, { foreignKey: 'grupo_opciones_id', as: 'productos' });
+
+Producto.hasMany(ProductoGrupoOpciones, { foreignKey: 'producto_id', as: 'pasos' });
+ProductoGrupoOpciones.belongsTo(Producto, { foreignKey: 'producto_id' });
+ProductoGrupoOpciones.belongsTo(GrupoOpciones, { foreignKey: 'grupo_opciones_id', as: 'grupo_opciones' });
+ProductoGrupoOpciones.belongsTo(Opcion, { foreignKey: 'disparado_por_opcion_id', as: 'disparado_por' });
+GrupoOpciones.hasMany(ProductoGrupoOpciones, { foreignKey: 'grupo_opciones_id', as: 'pasos_producto' });
 
 // Pedidos
 Pedido.belongsTo(Mesa, { foreignKey: 'mesa_id', as: 'mesa' });
@@ -76,6 +81,8 @@ Pedido.belongsTo(SesionCaja, { foreignKey: 'sesion_caja_id', as: 'sesion_caja' }
 Pedido.hasMany(DetallePedido, { foreignKey: 'pedido_id', as: 'detalles' });
 DetallePedido.belongsTo(Pedido, { foreignKey: 'pedido_id' });
 DetallePedido.belongsTo(Producto, { foreignKey: 'producto_id', as: 'producto' });
+DetallePedido.hasMany(DetallePedidoOpciones, { foreignKey: 'detalle_pedido_id', as: 'opciones' });
+DetallePedidoOpciones.belongsTo(DetallePedido, { foreignKey: 'detalle_pedido_id' });
 
 // SesionCaja
 SesionCaja.belongsTo(Usuario, { foreignKey: 'usuario_id', as: 'usuario' });
@@ -128,19 +135,14 @@ Sucursal.hasMany(Caja, { foreignKey: 'sucursal_id', as: 'cajas' });
 Caja.hasMany(SesionCaja, { foreignKey: 'caja_id', as: 'sesiones' });
 SesionCaja.belongsTo(Caja, { foreignKey: 'caja_id', as: 'caja' });
 
-// Pagos QR (CodePay)
-Pedido.hasMany(PagoQr, { foreignKey: 'pedido_id', as: 'pagosQr' });
-PagoQr.belongsTo(Pedido, { foreignKey: 'pedido_id', as: 'pedido' });
-PagoQr.belongsTo(Sucursal, { foreignKey: 'sucursal_id', as: 'sucursal' });
-
 module.exports = {
   sequelize,
   Rol, Permiso, Usuario,
   Area, Mesa,
   Categoria, Producto,
-  GrupoOpciones, Opcion,
+  GrupoOpciones, Opcion, ProductoGrupoOpciones,
   Cliente,
-  SesionCaja, Pedido, DetallePedido,
+  SesionCaja, Pedido, DetallePedido, DetallePedidoOpciones,
   DetalleArqueo, Gasto, LibroCaja,
   Proveedor, Compra, DetalleCompra,
   RegistroInventario,
@@ -149,5 +151,4 @@ module.exports = {
   Sucursal,
   ProductoStockSucursal,
   Caja,
-  PagoQr,
 };

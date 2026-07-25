@@ -1,16 +1,17 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 
-const Opcion = sequelize.define('Opcion', {
+const ProductoGrupoOpciones = sequelize.define('ProductoGrupoOpciones', {
   id: { type: DataTypes.INTEGER.UNSIGNED, primaryKey: true, autoIncrement: true },
+  producto_id: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
   grupo_opciones_id: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
-  nombre: { type: DataTypes.STRING(100), allowNull: false },
   orden: { type: DataTypes.INTEGER, defaultValue: 0 },
-  precio_delta: { type: DataTypes.DECIMAL(10, 2), defaultValue: 0 },
+  obligatorio: { type: DataTypes.TINYINT(1), defaultValue: 1 },
+  disparado_por_opcion_id: { type: DataTypes.INTEGER.UNSIGNED },
 }, {
-  tableName: 'opciones',
+  tableName: 'producto_grupos_opciones',
   createdAt: 'creado_en',
   updatedAt: 'actualizado_en',
 });
 
-module.exports = Opcion;
+module.exports = ProductoGrupoOpciones;

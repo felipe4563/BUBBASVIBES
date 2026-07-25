@@ -55,7 +55,8 @@ describe('Grupos de opciones API', () => {
     await GrupoOpciones.destroy({ where: { id } });
   });
 
-  it('eliminar un grupo asignado a un producto lo desasigna en vez de fallar', async () => {
+  it('eliminar un grupo asignado a un producto borra el paso en cascada en vez de fallar', async () => {
+    const { ProductoGrupoOpciones } = require('../src/models');
     const categoria = await Categoria.create({ nombre: 'Categoria Grupos Opciones Test' });
     const crear = await request(app)
       .post('/api/v1/grupos-opciones')
@@ -63,15 +64,16 @@ describe('Grupos de opciones API', () => {
       .send({ nombre: 'Grupo A Eliminar Test', opciones: [{ nombre: 'Opción 1', orden: 1 }] });
     const grupoId = crear.body.datos.id;
 
-    const producto = await Producto.create({ categoria_id: categoria.id, nombre: 'Producto Con Grupo Test', precio: 10, grupo_opciones_id: grupoId });
+    const producto = await Producto.create({ categoria_id: categoria.id, nombre: 'Producto Con Grupo Test', precio: 10 });
+    await ProductoGrupoOpciones.create({ producto_id: producto.id, grupo_opciones_id: grupoId, orden: 1 });
 
     const eliminar = await request(app)
       .delete(`/api/v1/grupos-opciones/${grupoId}`)
       .set('Authorization', `Bearer ${adminToken}`);
     expect(eliminar.status).toBe(200);
 
-    const productoRecargado = await Producto.findByPk(producto.id);
-    expect(productoRecargado.grupo_opciones_id).toBeNull();
+    const pasos = await ProductoGrupoOpciones.findAll({ where: { producto_id: producto.id } });
+    expect(pasos).toHaveLength(0);
 
     await producto.destroy();
     await categoria.destroy();

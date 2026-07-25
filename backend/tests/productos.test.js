@@ -160,29 +160,30 @@ describe('Productos — grupo de opciones', () => {
     await GrupoOpciones.destroy({ where: { id: grupoId } });
   });
 
-  it('crea un producto con grupo_opciones_id y lo devuelve con sus opciones', async () => {
+  it('crea un producto con un paso (grupo_opciones_id) y lo devuelve con sus opciones', async () => {
     const crear = await request(app)
       .post('/api/v1/productos')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ categoria_id: categoriaId, nombre: 'Picaña Test', precio: 85, grupo_opciones_id: grupoId });
+      .send({ categoria_id: categoriaId, nombre: 'Picaña Test', precio: 85, pasos: [{ grupo_opciones_id: grupoId }] });
 
     expect(crear.status).toBe(201);
-    expect(crear.body.datos.grupo_opciones.nombre).toBe('Término Productos Test');
-    expect(crear.body.datos.grupo_opciones.opciones.map(o => o.nombre)).toEqual(['Jugoso']);
+    expect(crear.body.datos.pasos).toHaveLength(1);
+    expect(crear.body.datos.pasos[0].grupo_opciones.nombre).toBe('Término Productos Test');
+    expect(crear.body.datos.pasos[0].grupo_opciones.opciones.map(o => o.nombre)).toEqual(['Jugoso']);
   });
 
-  it('GET /productos incluye grupo_opciones cuando está asignado', async () => {
+  it('GET /productos incluye el paso con su grupo de opciones cuando está asignado', async () => {
     const res = await request(app).get('/api/v1/productos').set('Authorization', `Bearer ${adminToken}`);
     const creado = res.body.datos.find(p => p.nombre === 'Picaña Test');
-    expect(creado.grupo_opciones.id).toBe(grupoId);
+    expect(creado.pasos[0].grupo_opciones.id).toBe(grupoId);
   });
 
-  it('un producto sin grupo asignado devuelve grupo_opciones null', async () => {
+  it('un producto sin grupo asignado devuelve pasos vacío', async () => {
     const crear = await request(app)
       .post('/api/v1/productos')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ categoria_id: categoriaId, nombre: 'Producto Sin Grupo Test', precio: 20 });
 
-    expect(crear.body.datos.grupo_opciones).toBeNull();
+    expect(crear.body.datos.pasos).toHaveLength(0);
   });
 });

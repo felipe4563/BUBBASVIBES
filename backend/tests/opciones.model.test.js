@@ -1,4 +1,4 @@
-const { GrupoOpciones, Opcion, Producto, Categoria } = require('../src/models');
+const { GrupoOpciones, Opcion, Producto, Categoria, ProductoGrupoOpciones } = require('../src/models');
 
 describe('Modelos GrupoOpciones y Opcion', () => {
   let categoriaId;
@@ -13,11 +13,11 @@ describe('Modelos GrupoOpciones y Opcion', () => {
     await Categoria.destroy({ where: { id: categoriaId } });
   });
 
-  it('crea un grupo de opciones con sus opciones asociadas', async () => {
+  it('crea un grupo de opciones con sus opciones asociadas, incluyendo precio_delta', async () => {
     const grupo = await GrupoOpciones.create({ nombre: 'Término de cocción Model Test' });
     await Opcion.bulkCreate([
-      { grupo_opciones_id: grupo.id, nombre: 'Jugoso', orden: 1 },
-      { grupo_opciones_id: grupo.id, nombre: 'Término medio', orden: 2 },
+      { grupo_opciones_id: grupo.id, nombre: 'Jugoso', orden: 1, precio_delta: 0 },
+      { grupo_opciones_id: grupo.id, nombre: 'Término medio', orden: 2, precio_delta: 0 },
     ]);
 
     const recargado = await GrupoOpciones.findByPk(grupo.id, { include: [{ model: Opcion, as: 'opciones' }] });
@@ -27,15 +27,21 @@ describe('Modelos GrupoOpciones y Opcion', () => {
     await grupo.destroy();
   });
 
-  it('un producto puede asignarse a un grupo de opciones, y al borrar el grupo queda sin asignar', async () => {
+  it('un producto puede tener varios pasos (grupos de opciones), y al borrar un grupo se borra el paso', async () => {
     const grupo = await GrupoOpciones.create({ nombre: 'Sabor Model Test' });
-    const producto = await Producto.create({ categoria_id: categoriaId, nombre: 'Jugo Model Test', precio: 10, grupo_opciones_id: grupo.id });
+    const producto = await Producto.create({ categoria_id: categoriaId, nombre: 'Jugo Model Test', precio: 10 });
+    await ProductoGrupoOpciones.create({ producto_id: producto.id, grupo_opciones_id: grupo.id, orden: 1 });
 
-    const recargado = await Producto.findByPk(producto.id, { include: [{ model: GrupoOpciones, as: 'grupo_opciones' }] });
-    expect(recargado.grupo_opciones.nombre).toBe('Sabor Model Test');
+    const recargado = await Producto.findByPk(producto.id, {
+      include: [{ model: ProductoGrupoOpciones, as: 'pasos', include: [{ model: GrupoOpciones, as: 'grupo_opciones' }] }],
+    });
+    expect(recargado.pasos).toHaveLength(1);
+    expect(recargado.pasos[0].grupo_opciones.nombre).toBe('Sabor Model Test');
 
-    await grupo.destroy(); // ON DELETE SET NULL — no debe fallar por el producto asignado
-    const productoRecargado = await Producto.findByPk(producto.id);
-    expect(productoRecargado.grupo_opciones_id).toBeNull();
+    await grupo.destroy(); // ON DELETE CASCADE en producto_grupos_opciones
+    const pasosRestantes = await ProductoGrupoOpciones.findAll({ where: { producto_id: producto.id } });
+    expect(pasosRestantes).toHaveLength(0);
+
+    await producto.destroy();
   });
 });

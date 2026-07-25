@@ -1,9 +1,3 @@
-jest.mock('../src/integrations/codepay/codepay.client', () => ({
-  generarQr: jest.fn(),
-  consultarEstado: jest.fn(),
-  verificarFirmaWebhook: jest.fn(),
-}));
-
 const request = require('supertest');
 const app = require('../src/app');
 
@@ -19,7 +13,7 @@ describe('Ventas API', () => {
   });
 });
 
-const { Sucursal, Area, Mesa, Categoria, Producto, ProductoStockSucursal, Usuario, Rol, SesionCaja, Pedido, RegistroInventario, LibroCaja, Caja, PagoQr } = require('../src/models');
+const { Sucursal, Area, Mesa, Categoria, Producto, ProductoStockSucursal, Usuario, Rol, SesionCaja, Pedido, RegistroInventario, LibroCaja, Caja } = require('../src/models');
 const bcrypt = require('bcryptjs');
 
 describe('Ventas por sucursal', () => {
@@ -160,43 +154,37 @@ describe('Ventas - aislamiento entre sucursales (acceso por id)', () => {
   });
 });
 
-const codepayClientMock = require('../src/integrations/codepay/codepay.client');
-const ventasService = require('../src/modules/ventas/ventas.service');
-
-describe('Ventas — cobro con QR (CodePay)', () => {
+describe('Ventas — cobro con QR estático (manual)', () => {
   let sucursalId, areaId, mesaId, usuarioId, cajaId, sesionId, productoId, token;
 
   beforeAll(async () => {
-    const sucursal = await Sucursal.create({ nombre: 'Sucursal PagoQr Ventas Test' });
+    const sucursal = await Sucursal.create({ nombre: 'Sucursal QR Estático Ventas Test' });
     sucursalId = sucursal.id;
-    const area = await Area.create({ nombre: 'Area PagoQr Ventas Test', sucursal_id: sucursalId });
+    const area = await Area.create({ nombre: 'Area QR Estático Ventas Test', sucursal_id: sucursalId });
     areaId = area.id;
-    const mesa = await Mesa.create({ area_id: areaId, nombre: 'Mesa PagoQr Ventas Test' });
+    const mesa = await Mesa.create({ area_id: areaId, nombre: 'Mesa QR Estático Ventas Test' });
     mesaId = mesa.id;
-    const categoria = await Categoria.create({ nombre: 'Categoria PagoQr Ventas Test' });
-    const producto = await Producto.create({ categoria_id: categoria.id, nombre: 'Producto PagoQr Ventas Test', precio: 5, stock: 0 });
+    const categoria = await Categoria.create({ nombre: 'Categoria QR Estático Ventas Test' });
+    const producto = await Producto.create({ categoria_id: categoria.id, nombre: 'Producto QR Estático Ventas Test', precio: 5, stock: 0 });
     productoId = producto.id;
     await ProductoStockSucursal.create({ producto_id: productoId, sucursal_id: sucursalId, stock: 10 });
 
     const rol = await Rol.findOne({ where: { nombre: 'Cajero' } });
     const hash = await bcrypt.hash('clave123', 10);
-    const usuario = await Usuario.create({ rol_id: rol.id, nombre: 'PagoQr Ventas Test', email: 'pagoqr-ventas-test@restaurante.com', contrasena: hash });
+    const usuario = await Usuario.create({ rol_id: rol.id, nombre: 'QR Estático Ventas Test', email: 'qr-estatico-ventas-test@restaurante.com', contrasena: hash });
     usuarioId = usuario.id;
     await usuario.addSucursal(sucursal);
 
-    const login = await request(app).post('/api/v1/auth/login').send({ email: 'pagoqr-ventas-test@restaurante.com', contrasena: 'clave123' });
+    const login = await request(app).post('/api/v1/auth/login').send({ email: 'qr-estatico-ventas-test@restaurante.com', contrasena: 'clave123' });
     token = login.body.datos.token;
 
-    const caja = await Caja.create({ sucursal_id: sucursalId, nombre: 'Caja PagoQr Ventas Test' });
+    const caja = await Caja.create({ sucursal_id: sucursalId, nombre: 'Caja QR Estático Ventas Test' });
     cajaId = caja.id;
     const sesion = await SesionCaja.create({ usuario_id: usuarioId, sucursal_id: sucursalId, caja_id: cajaId, monto_apertura: 0 });
     sesionId = sesion.id;
   });
 
-  afterEach(() => { jest.clearAllMocks(); });
-
   afterAll(async () => {
-    await PagoQr.destroy({ where: { sucursal_id: sucursalId } });
     await Pedido.destroy({ where: { usuario_id: usuarioId } });
     await LibroCaja.destroy({ where: { usuario_id: usuarioId } });
     await SesionCaja.destroy({ where: { id: sesionId } });
@@ -209,11 +197,7 @@ describe('Ventas — cobro con QR (CodePay)', () => {
     await Sucursal.destroy({ where: { id: sucursalId } });
   });
 
-  it('crearCompleta con metodo_pago=qr deja el pedido en pendiente_pago sin tocar stock ni libro de caja', async () => {
-    codepayClientMock.generarQr.mockResolvedValue({
-      qr_code: 'data:image/png;base64,abc', tx_id: 'tx_qr_1', amount: 10.35, net_amount: 10, commission_amount: 0.35,
-    });
-
+  it('metodo_pago=qr completa la venta de inmediato (sin registro externo), descuenta stock y registra el ingreso', async () => {
     const res = await request(app)
       .post('/api/v1/ventas/completa')
       .set('Authorization', `Bearer ${token}`)
@@ -223,174 +207,34 @@ describe('Ventas — cobro con QR (CodePay)', () => {
       });
 
     expect(res.status).toBe(201);
-    expect(res.body.datos.pago_qr.tx_id).toBe('tx_qr_1');
-    expect(res.body.datos.pedido.estado).toBe('pendiente_pago');
+    expect(res.body.datos.estado).toBe('completado');
+    expect(res.body.datos.metodo_pago).toBe('qr');
 
     const fila = await ProductoStockSucursal.findOne({ where: { producto_id: productoId, sucursal_id: sucursalId } });
-    expect(fila.stock).toBe(10); // sin cambios todavía
+    expect(fila.stock).toBe(8); // 10 - 2
 
-    const entradasLibro = await LibroCaja.count({ where: { referencia_id: res.body.datos.pedido.id } });
-    expect(entradasLibro).toBe(0);
-  });
-
-  it('confirmación exitosa por polling: completa la venta, descuenta stock y registra el ingreso', async () => {
-    codepayClientMock.generarQr.mockResolvedValue({
-      qr_code: 'data:image/png;base64,abc', tx_id: 'tx_qr_2', amount: 10.35, net_amount: 10, commission_amount: 0.35,
-    });
-
-    const creado = await request(app)
-      .post('/api/v1/ventas/completa')
-      .set('Authorization', `Bearer ${token}`)
-      .send({
-        tipo: 'llevar', metodo_pago: 'qr', sesion_caja_id: sesionId,
-        items: [{ producto_id: productoId, cantidad: 1 }],
-      });
-    const pedidoId = creado.body.datos.pedido.id;
-
-    codepayClientMock.consultarEstado.mockResolvedValue({ status: 'completed', tx_id: 'tx_qr_2', order_id: `pedido_${pedidoId}_1` });
-
-    const res = await request(app)
-      .get(`/api/v1/ventas/${pedidoId}/pago-qr/estado`)
-      .set('Authorization', `Bearer ${token}`);
-
-    expect(res.status).toBe(200);
-    expect(res.body.datos.estado).toBe('completado');
-    expect(res.body.datos.pedido.estado).toBe('completado');
-
-    const entradasLibro = await LibroCaja.count({ where: { referencia_id: pedidoId } });
+    const entradasLibro = await LibroCaja.count({ where: { referencia_id: res.body.datos.id } });
     expect(entradasLibro).toBe(1);
   });
 
-  it('si el webhook confirma antes que el siguiente polling, el polling sigue viendo el estado (no 404)', async () => {
-    codepayClientMock.generarQr.mockResolvedValue({
-      qr_code: 'data:image/png;base64,abc', tx_id: 'tx_qr_webhook_primero', amount: 10.35, net_amount: 10, commission_amount: 0.35,
-    });
-
-    const creado = await request(app)
-      .post('/api/v1/ventas/completa')
-      .set('Authorization', `Bearer ${token}`)
-      .send({
-        tipo: 'llevar', metodo_pago: 'qr', sesion_caja_id: sesionId,
-        items: [{ producto_id: productoId, cantidad: 1 }],
-      });
-    const pedidoId = creado.body.datos.pedido.id;
-
-    // El webhook llega y confirma el pago ANTES de que el frontend vuelva a
-    // consultar el estado por polling — el PagoQr ya no está 'pendiente'.
-    await ventasService.procesarWebhookPagoQr({ event: 'payment.completed', order_id: `pedido_${pedidoId}_1` });
-
-    const res = await request(app)
-      .get(`/api/v1/ventas/${pedidoId}/pago-qr/estado`)
-      .set('Authorization', `Bearer ${token}`);
-
-    expect(res.status).toBe(200);
-    expect(res.body.datos.estado).toBe('completado');
-    expect(res.body.datos.pedido.estado).toBe('completado');
-
-    // No debe haber vuelto a llamar a CodePay para "reconfirmar" un pago que
-    // el webhook ya resolvió.
-    expect(codepayClientMock.consultarEstado).not.toHaveBeenCalled();
-  });
-
-  it('dos confirmaciones concurrentes del mismo pago solo finalizan la venta una vez', async () => {
-    codepayClientMock.generarQr.mockResolvedValue({
-      qr_code: 'data:image/png;base64,abc', tx_id: 'tx_qr_race', amount: 5.35, net_amount: 5, commission_amount: 0.35,
-    });
-
-    const creado = await request(app)
-      .post('/api/v1/ventas/completa')
-      .set('Authorization', `Bearer ${token}`)
-      .send({
-        tipo: 'llevar', metodo_pago: 'qr', sesion_caja_id: sesionId,
-        items: [{ producto_id: productoId, cantidad: 1 }],
-      });
-    const pedidoId = creado.body.datos.pedido.id;
-
-    codepayClientMock.consultarEstado.mockResolvedValue({ status: 'completed', tx_id: 'tx_qr_race', order_id: `pedido_${pedidoId}_1` });
-
-    const [res1, res2] = await Promise.all([
-      request(app).get(`/api/v1/ventas/${pedidoId}/pago-qr/estado`).set('Authorization', `Bearer ${token}`),
-      request(app).get(`/api/v1/ventas/${pedidoId}/pago-qr/estado`).set('Authorization', `Bearer ${token}`),
-    ]);
-
-    expect(res1.status).toBe(200);
-    expect(res2.status).toBe(200);
-    expect([res1.body.datos.estado, res2.body.datos.estado]).toContain('completado');
-
-    const entradasLibro = await LibroCaja.count({ where: { referencia_id: pedidoId } });
-    expect(entradasLibro).toBe(1); // no se duplicó pese a las dos confirmaciones simultáneas
-  });
-
-  it('confirmación fallida por polling: el pedido vuelve a pendiente y puede reintentarse', async () => {
-    codepayClientMock.generarQr.mockResolvedValue({
-      qr_code: 'data:image/png;base64,abc', tx_id: 'tx_qr_3', amount: 10.35, net_amount: 10, commission_amount: 0.35,
-    });
-
-    const creado = await request(app)
-      .post('/api/v1/ventas/completa')
-      .set('Authorization', `Bearer ${token}`)
-      .send({
-        tipo: 'llevar', metodo_pago: 'qr', sesion_caja_id: sesionId,
-        items: [{ producto_id: productoId, cantidad: 1 }],
-      });
-    const pedidoId = creado.body.datos.pedido.id;
-
-    codepayClientMock.consultarEstado.mockResolvedValue({ status: 'failed', tx_id: 'tx_qr_3', order_id: `pedido_${pedidoId}_1` });
-
-    const res = await request(app)
-      .get(`/api/v1/ventas/${pedidoId}/pago-qr/estado`)
-      .set('Authorization', `Bearer ${token}`);
-
-    expect(res.status).toBe(200);
-    expect(res.body.datos.estado).toBe('fallido');
-    expect(res.body.datos.pedido.estado).toBe('pendiente');
-
-    // Reintento: nuevo order_id (segundo intento), pedido vuelve a pendiente_pago
-    codepayClientMock.generarQr.mockResolvedValue({
-      qr_code: 'data:image/png;base64,def', tx_id: 'tx_qr_3b', amount: 10.35, net_amount: 10, commission_amount: 0.35,
-    });
-    const reintento = await request(app)
-      .post(`/api/v1/ventas/${pedidoId}/cobrar`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ metodo_pago: 'qr' });
-
-    expect(reintento.status).toBe(200);
-    expect(reintento.body.datos.pago_qr.tx_id).toBe('tx_qr_3b');
-    expect(codepayClientMock.generarQr).toHaveBeenCalledWith(expect.objectContaining({ order_id: `pedido_${pedidoId}_2` }));
-  });
-
-  it('cancelación manual: revierte el pedido a su estado previo', async () => {
-    codepayClientMock.generarQr.mockResolvedValue({
-      qr_code: 'data:image/png;base64,abc', tx_id: 'tx_qr_4', amount: 10.35, net_amount: 10, commission_amount: 0.35,
-    });
-
-    const creado = await request(app)
-      .post('/api/v1/ventas/completa')
-      .set('Authorization', `Bearer ${token}`)
-      .send({
-        tipo: 'llevar', metodo_pago: 'qr', sesion_caja_id: sesionId,
-        items: [{ producto_id: productoId, cantidad: 1 }],
-      });
-    const pedidoId = creado.body.datos.pedido.id;
-
-    const res = await request(app)
-      .post(`/api/v1/ventas/${pedidoId}/pago-qr/cancelar`)
-      .set('Authorization', `Bearer ${token}`);
-
-    expect(res.status).toBe(200);
-    expect(res.body.datos.estado).toBe('pendiente');
-  });
-
-  it('GET pago-qr/estado sin ningún pago pendiente → 404', async () => {
+  it('cobrar un pedido pendiente con metodo_pago=qr también completa de inmediato', async () => {
     const creado = await request(app)
       .post('/api/v1/ventas')
       .set('Authorization', `Bearer ${token}`)
       .send({ mesa_id: mesaId, tipo: 'mesa', sesion_caja_id: sesionId });
+    const pedidoId = creado.body.datos.id;
+
+    await request(app)
+      .post(`/api/v1/ventas/${pedidoId}/items`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ producto_id: productoId, cantidad: 1 });
 
     const res = await request(app)
-      .get(`/api/v1/ventas/${creado.body.datos.id}/pago-qr/estado`)
-      .set('Authorization', `Bearer ${token}`);
+      .post(`/api/v1/ventas/${pedidoId}/cobrar`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ metodo_pago: 'qr' });
 
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect(res.body.datos.estado).toBe('completado');
   });
 });

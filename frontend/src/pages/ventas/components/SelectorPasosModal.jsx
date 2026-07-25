@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Modal from '../../../components/ui/Modal';
 
 function pasoVisible(paso, seleccionPorGrupo) {
@@ -20,7 +20,10 @@ export default function SelectorPasosModal({ producto, onConfirmar, onClose }) {
   const esUltimo = indice === pasosVisibles.length - 1;
   const seleccionActual = paso ? seleccionPorGrupo[paso.grupo_opciones.id] : null;
 
-  const precioTotal = parseFloat(producto.precio) + Object.values(seleccionPorGrupo).reduce((s, o) => s + parseFloat(o.precio_delta || 0), 0);
+  const precioTotal = parseFloat(producto.precio) + pasosVisibles.reduce((s, p) => {
+    const sel = seleccionPorGrupo[p.grupo_opciones.id];
+    return s + (sel ? parseFloat(sel.precio_delta || 0) : 0);
+  }, 0);
 
   function elegir(opcion) {
     setSeleccionPorGrupo((prev) => ({
@@ -43,9 +46,12 @@ export default function SelectorPasosModal({ producto, onConfirmar, onClose }) {
     setIndice((i) => i + 1);
   }
 
+  useEffect(() => {
+    if (!paso) onConfirmar([]);
+  }, [paso, onConfirmar]);
+
   if (!paso) {
     // Producto sin pasos (no debería abrirse este modal en ese caso, pero por seguridad):
-    onConfirmar([]);
     return null;
   }
 

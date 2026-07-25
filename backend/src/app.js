@@ -25,7 +25,6 @@ const configuracionRoutes = require('./modules/configuracion/configuracion.route
 const reservacionesRoutes = require('./modules/reservaciones/reservaciones.routes');
 const reportesRoutes = require('./modules/reportes/reportes.routes');
 const perfilRoutes = require('./modules/perfil/perfil.routes');
-const codepayWebhookRoutes = require('./webhooks/codepay.webhook.routes');
 
 const app = express();
 
@@ -41,8 +40,6 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.get('/api/v1/salud', (_req, res) => {
   res.json({ ok: true, datos: 'API restaurante funcionando' });
 });
-
-app.use('/webhooks', codepayWebhookRoutes);
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/roles', rolesRoutes);

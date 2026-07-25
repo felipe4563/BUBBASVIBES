@@ -236,134 +236,6 @@ async function _emitirImpresion(pedido, metodo_pago, cambio, sucursal_id) {
   return { caja: datosCaja, cocina: datosCocina };
 }
 
-/**
- * Genera un QR de cobro con CodePay para un pedido ya persistido (con su
- * total ya calculado) y deja el pedido en 'pendiente_pago' hasta que se
- * confirme (ver consultarEstadoPagoQr / procesarWebhookPagoQr).
- */
-async function iniciarPagoQr(pedido, { descuento = 0, propina = 0 } = {}) {
-  const estadoPrevio = pedido.estado;
-  const monto_neto = parseFloat(pedido.total) - parseFloat(descuento) + parseFloat(propina);
-  const intentosPrevios = await PagoQr.count({ where: { pedido_id: pedido.id } });
-  const order_id = `pedido_${pedido.id}_${intentosPrevios + 1}`;
-  const expires_at = new Date(Date.now() + 30 * 60 * 1000);
-
-  const cfg = await Configuracion.findOne({ where: { clave: 'nombre_negocio' } });
-  const description = ((cfg && cfg.valor) || 'Venta').replace(/[^a-zA-Z0-9]/g, '').slice(0, 20) || 'Venta';
-
-  const respuesta = await codepayClient.generarQr({
-    order_id, amount: monto_neto, description, expires_at: expires_at.toISOString(),
-  });
-
-  await sequelize.transaction(async (t) => {
-    await PagoQr.create({
-      pedido_id: pedido.id, sucursal_id: pedido.sucursal_id, order_id,
-      tx_id: respuesta.tx_id, estado: 'pendiente', estado_previo: estadoPrevio,
-      monto_neto, comision: respuesta.commission_amount, monto_total: respuesta.amount,
-      qr_code: respuesta.qr_code, expires_at,
-    }, { transaction: t });
-
-    await pedido.update({ estado: 'pendiente_pago', metodo_pago: 'qr', descuento, propina }, { transaction: t });
-  });
-
-  return {
-    qr_code: respuesta.qr_code, tx_id: respuesta.tx_id, expires_at,
-    monto_neto, comision: respuesta.commission_amount, monto_total: respuesta.amount,
-  };
-}
-
-async function _revertirPagoQr(pagoQrInicial, nuevoEstado) {
-  await sequelize.transaction(async (t) => {
-    const pagoQr = await PagoQr.findByPk(pagoQrInicial.id, { transaction: t, lock: t.LOCK.UPDATE });
-    if (!pagoQr || pagoQr.estado !== 'pendiente') return; // ya resuelto por otra llamada concurrente
-    await pagoQr.update({ estado: nuevoEstado }, { transaction: t });
-    await Pedido.update({ estado: pagoQr.estado_previo }, { where: { id: pagoQr.pedido_id }, transaction: t });
-  });
-}
-
-async function _confirmarPagoQr(pagoQrInicial) {
-  const pedidoId = await sequelize.transaction(async (t) => {
-    const pagoQr = await PagoQr.findByPk(pagoQrInicial.id, { transaction: t, lock: t.LOCK.UPDATE });
-    if (!pagoQr || pagoQr.estado !== 'pendiente') return null; // ya resuelto por otra llamada concurrente
-
-    const pedido = await Pedido.findByPk(pagoQr.pedido_id, { include: INCLUDE_PEDIDO_COMPLETO, transaction: t });
-    const detalles = pedido.detalles.map((d) => ({ producto_id: d.producto_id, cantidad: d.cantidad }));
-
-    await _finalizarVenta({
-      pedido, detalles, metodo_pago: 'qr', monto_recibido: pagoQr.monto_neto,
-      descuento: pedido.descuento, propina: pedido.propina, usuario_id: pedido.usuario_id,
-    }, t);
-    await pagoQr.update({ estado: 'completado' }, { transaction: t });
-    return pedido.id;
-  });
-
-  if (!pedidoId) return null;
-
-  const completado = await obtener(pedidoId);
-  emitir('restaurante:actualizar', { tipo: 'pedido_cobrado' }, completado.sucursal_id);
-  await _emitirImpresion(completado, 'qr', 0, completado.sucursal_id);
-  return completado;
-}
-
-async function consultarEstadoPagoQr(pedido_id, alcance) {
-  const pedido = await Pedido.findByPk(pedido_id);
-  if (!pedido) throw Object.assign(new Error('Pedido no encontrado'), { status: 404 });
-  _verificarAlcance(pedido, alcance);
-
-  const pagoQr = await PagoQr.findOne({ where: { pedido_id }, order: [['id', 'DESC']] });
-  if (!pagoQr) throw Object.assign(new Error('No hay un pago QR para este pedido'), { status: 404 });
-
-  // El webhook de CodePay puede confirmar/revertir el pago entre un poll y
-  // el siguiente — si ya se resolvió (por el webhook), se devuelve directo
-  // en vez de volver a filtrar por estado 'pendiente' (que ya no matchea y
-  // antes producía un 404 acá, dejando el modal de cobro esperando
-  // indefinidamente aunque el pago ya estuviera confirmado).
-  if (pagoQr.estado !== 'pendiente') {
-    return { estado: pagoQr.estado, pedido: await obtener(pedido_id) };
-  }
-
-  if (new Date() > pagoQr.expires_at) {
-    await _revertirPagoQr(pagoQr, 'expirado');
-    return { estado: 'expirado', pedido: await obtener(pedido_id) };
-  }
-
-  const estadoCodepay = await codepayClient.consultarEstado(pagoQr.tx_id);
-
-  if (estadoCodepay.status === 'completed') {
-    await _confirmarPagoQr(pagoQr);
-    return { estado: 'completado', pedido: await obtener(pedido_id) };
-  }
-  if (estadoCodepay.status === 'failed') {
-    await _revertirPagoQr(pagoQr, 'fallido');
-    return { estado: 'fallido', pedido: await obtener(pedido_id) };
-  }
-  return { estado: 'pendiente', pedido: await obtener(pedido_id) };
-}
-
-async function cancelarPagoQr(pedido_id, alcance) {
-  const pedido = await Pedido.findByPk(pedido_id);
-  if (!pedido) throw Object.assign(new Error('Pedido no encontrado'), { status: 404 });
-  _verificarAlcance(pedido, alcance);
-
-  const pagoQr = await PagoQr.findOne({ where: { pedido_id, estado: 'pendiente' }, order: [['id', 'DESC']] });
-  if (!pagoQr) throw Object.assign(new Error('No hay un pago QR pendiente para este pedido'), { status: 404 });
-
-  await _revertirPagoQr(pagoQr, 'cancelado');
-  return obtener(pedido_id);
-}
-
-/** Usado por el endpoint de webhook (Task 4). Idempotente. */
-async function procesarWebhookPagoQr({ event, order_id }) {
-  const pagoQr = await PagoQr.findOne({ where: { order_id } });
-  if (!pagoQr || pagoQr.estado !== 'pendiente') return;
-
-  if (event === 'payment.completed') {
-    await _confirmarPagoQr(pagoQr);
-  } else if (event === 'payment.failed') {
-    await _revertirPagoQr(pagoQr, 'fallido');
-  }
-}
-
 async function crearCompleta({ tipo, mesa_id, nombre_cliente, documento_cliente, tipo_documento, items, metodo_pago, monto_recibido, descuento = 0, propina = 0, sesion_caja_id, usuario_id }) {
   if (!sesion_caja_id) {
     throw Object.assign(new Error('No hay caja abierta. Abre la caja antes de crear una orden.'), { status: 409 });
@@ -400,20 +272,22 @@ async function crearCompleta({ tipo, mesa_id, nombre_cliente, documento_cliente,
   const total = productos.reduce((sum, { item, precio }) => sum + item.cantidad * precio, 0);
   const monto_neto = total - parseFloat(descuento) + parseFloat(propina);
 
-  if (metodo_pago === 'efectivo') {
-    if (!monto_recibido || parseFloat(monto_recibido) < monto_neto) {
-      throw Object.assign(new Error('Monto recibido insuficiente'), { status: 400 });
-    }
+  if (!['efectivo', 'qr'].includes(metodo_pago)) {
+    throw Object.assign(new Error("metodo_pago debe ser 'efectivo' o 'qr'"), { status: 400 });
+  }
+  if (metodo_pago === 'qr') {
+    monto_recibido = monto_neto; // QR estático: se asume el monto exacto, confirmado a mano por el cajero
+  } else if (!monto_recibido || parseFloat(monto_recibido) < monto_neto) {
+    throw Object.assign(new Error('Monto recibido insuficiente'), { status: 400 });
   }
 
   const numero_llevar = tipo === 'llevar' ? await _siguienteNumeroLlevar() : null;
-  const estadoInicial = metodo_pago === 'qr' ? 'pendiente' : 'completado';
 
   const pedidoId = await sequelize.transaction(async (t) => {
     const pedido = await Pedido.create({
       mesa_id: tipo === 'mesa' ? mesa_id : null,
       tipo, numero_llevar, usuario_id, sesion_caja_id, sucursal_id,
-      estado: estadoInicial, total, descuento, propina, metodo_pago: 'efectivo',
+      estado: 'completado', total, descuento, propina, metodo_pago: 'efectivo',
       nombre_cliente: nombre_cliente || (tipo === 'llevar' ? 'Cliente' : 'Público General'),
       documento_cliente,
       tipo_documento: tipo_documento || 'Ticket',
@@ -427,19 +301,10 @@ async function crearCompleta({ tipo, mesa_id, nombre_cliente, documento_cliente,
       detalles.push({ producto_id: item.producto_id, cantidad: item.cantidad });
     }
 
-    if (metodo_pago !== 'qr') {
-      await _finalizarVenta({ pedido, detalles, metodo_pago, monto_recibido, descuento, propina, usuario_id }, t);
-    }
+    await _finalizarVenta({ pedido, detalles, metodo_pago, monto_recibido, descuento, propina, usuario_id }, t);
 
     return pedido.id;
   });
-
-  if (metodo_pago === 'qr') {
-    const pedidoPendiente = await Pedido.findByPk(pedidoId);
-    const pago_qr = await iniciarPagoQr(pedidoPendiente, { descuento, propina });
-    emitir('restaurante:actualizar', { tipo: 'pedido_nuevo' }, sucursal_id);
-    return { pedido: await obtener(pedidoId), pago_qr };
-  }
 
   const creado = await obtener(pedidoId);
   emitir('restaurante:actualizar', { tipo: 'pedido_cobrado' }, sucursal_id);
@@ -501,13 +366,13 @@ async function cobrar(pedido_id, usuario_id, { metodo_pago, monto_recibido, desc
 
   const monto_neto = parseFloat(pedido.total) - parseFloat(descuento) + parseFloat(propina);
 
-  if (metodo_pago === 'efectivo' && (!monto_recibido || parseFloat(monto_recibido) < monto_neto)) {
-    throw Object.assign(new Error('Monto recibido insuficiente'), { status: 400 });
+  if (!['efectivo', 'qr'].includes(metodo_pago)) {
+    throw Object.assign(new Error("metodo_pago debe ser 'efectivo' o 'qr'"), { status: 400 });
   }
-
   if (metodo_pago === 'qr') {
-    const pago_qr = await iniciarPagoQr(pedido, { descuento, propina });
-    return { pedido: await obtener(pedido_id), pago_qr };
+    monto_recibido = monto_neto;
+  } else if (!monto_recibido || parseFloat(monto_recibido) < monto_neto) {
+    throw Object.assign(new Error('Monto recibido insuficiente'), { status: 400 });
   }
 
   const detalles = pedido.detalles.map((d) => ({ producto_id: d.producto_id, cantidad: d.cantidad }));
@@ -561,5 +426,4 @@ async function marcarListo(pedido_id, alcance) {
 module.exports = {
   listar, listarCocina, obtener, crear, crearCompleta, agregarItem, actualizarItem, eliminarItem,
   cobrar, cancelar, marcarListo,
-  consultarEstadoPagoQr, cancelarPagoQr, procesarWebhookPagoQr,
 };

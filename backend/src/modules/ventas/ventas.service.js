@@ -308,8 +308,7 @@ async function crearCompleta({ tipo, mesa_id, nombre_cliente, documento_cliente,
 
   const creado = await obtener(pedidoId);
   emitir('restaurante:actualizar', { tipo: 'pedido_cobrado' }, sucursal_id);
-  const datos_impresion = await _emitirImpresion(creado, metodo_pago, parseFloat(monto_recibido || monto_neto) - monto_neto, sucursal_id);
-  return { ...creado.toJSON(), datos_impresion };
+  return creado;
 }
 
 async function agregarItem(pedido_id, { producto_id, cantidad = 1, nota, selecciones }, alcance) {
@@ -380,8 +379,7 @@ async function cobrar(pedido_id, usuario_id, { metodo_pago, monto_recibido, desc
 
   const cobrado = await obtener(pedido_id);
   emitir('restaurante:actualizar', { tipo: 'pedido_cobrado' }, pedido.sucursal_id);
-  const datos_impresion = await _emitirImpresion(cobrado, metodo_pago, parseFloat(monto_recibido) - monto_neto, pedido.sucursal_id);
-  return { ...cobrado.toJSON(), datos_impresion };
+  return cobrado;
 }
 
 async function cancelar(pedido_id, usuario_id, alcance) {

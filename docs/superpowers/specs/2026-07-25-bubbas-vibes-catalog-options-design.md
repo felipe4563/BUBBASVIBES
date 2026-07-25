@@ -140,17 +140,29 @@ se agrega columna de tipo múltiple porque ninguna receta lo requiere.
   obligatorio, selector de "disparado por" (opcional, eligiendo una opción de un paso
   anterior del mismo producto). Se agrega campo `precio_delta` al editar cada opción
   dentro de un grupo.
-- **Tickets** (`frontend/src/utils/ticketVenta.js`, `ticketCocina.js`): en vez de listar
-  `nota` como texto plano por línea, se itera `detalle.opciones` (nombre_grupo +
-  nombre_opcion) mostrando cada paso elegido debajo del nombre del producto; `nota` se
-  sigue mostrando aparte como observación libre si existe. Formato monoespaciado 70mm
-  existente se mantiene (sin cambios de layout general, solo el contenido por línea).
+- **Tickets — rediseño** (`frontend/src/utils/ticketVenta.js`, `ticketCocina.js`): se
+  rediseñan ambos, no solo se ajusta el contenido:
+  - Encabezado nuevo con `logo.jpeg` como imagen (renderizada en blanco/negro/escala de
+    grises para imprimirse bien en térmica 70mm), reemplazando el encabezado de texto
+    actual.
+  - Cada línea de producto deja de listar `nota` como texto plano y en su lugar itera
+    `detalle.opciones` (nombre_grupo + nombre_opcion), mostrando **exactamente lo que el
+    cliente pidió** paso a paso debajo del nombre del producto (ej. "Bubble Tea –
+    Arandanitos / Leche / Frapeado / Con hierba buena / Perlas: Maracuyá"), tanto en el
+    ticket de **cliente** (para que confirme su pedido) como en el de **cocina** (para
+    que lo preparen correctamente) — esa es justamente la razón de ser de la estructura
+    de pasos: que quede registrado y visible qué se seleccionó en cada paso.
+  - `nota` (observación libre) se sigue mostrando aparte si existe.
+  - El resto del formato monoespaciado 70mm (dos copias en el ticket de cliente, etc.)
+    se mantiene, pero se ajusta el layout del encabezado/pie para acomodar el logo y
+    quede visualmente coherente con la marca Bubbas Vibes.
 - **Botón "Imprimir" manual**: se agrega en la pantalla de venta/pedido (donde hoy se
   llamaba automáticamente a `imprimirLocal`), que al presionarlo abre las dos ventanas de
-  impresión (cliente y cocina) usando los builders actualizados. Se quita la llamada
+  impresión (cliente y cocina) usando los builders rediseñados. Se quita la llamada
   automática post-cobro en `PedidoPage.jsx`.
-- **Branding**: se reemplaza el logo actual por `logo.jpeg` en login/sidebar (el asset se
-  copia a `frontend/src/assets/` o `frontend/public/` según cómo esté implementado hoy).
+- **Branding**: se reemplaza el logo actual por `logo.jpeg` en login/sidebar y en el
+  encabezado de los tickets (el asset se copia a `frontend/src/assets/` o
+  `frontend/public/` según cómo esté implementado hoy).
 
 ## Pago QR estático (reemplazo de CodePay)
 

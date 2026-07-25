@@ -1,4 +1,4 @@
-const { Categoria, Producto, Sucursal, GrupoOpciones, Opcion } = require('../../models');
+const { Categoria, Producto, Sucursal, GrupoOpciones, Opcion, ProductoGrupoOpciones } = require('../../models');
 const sequelize = require('../../config/database');
 const { ajustarStockSucursal, mezclarStockPorSucursal } = require('../inventario/stock.service');
 
@@ -38,14 +38,14 @@ async function eliminarCategoria(id) {
 
 async function listarGruposOpciones() {
   return GrupoOpciones.findAll({
-    include: [{ model: Opcion, as: 'opciones', attributes: ['id', 'nombre', 'orden'] }],
+    include: [{ model: Opcion, as: 'opciones', attributes: ['id', 'nombre', 'orden', 'precio_delta'] }],
     order: [['nombre', 'ASC'], [{ model: Opcion, as: 'opciones' }, 'orden', 'ASC']],
   });
 }
 
 async function _conOpciones(id, transaction) {
   return GrupoOpciones.findByPk(id, {
-    include: [{ model: Opcion, as: 'opciones', attributes: ['id', 'nombre', 'orden'] }],
+    include: [{ model: Opcion, as: 'opciones', attributes: ['id', 'nombre', 'orden', 'precio_delta'] }],
     order: [[{ model: Opcion, as: 'opciones' }, 'orden', 'ASC']],
     transaction,
   });
@@ -56,7 +56,7 @@ async function crearGrupoOpciones({ nombre, opciones = [] }) {
     const grupo = await GrupoOpciones.create({ nombre }, { transaction: t });
     if (opciones.length) {
       await Opcion.bulkCreate(
-        opciones.map((o, i) => ({ grupo_opciones_id: grupo.id, nombre: o.nombre, orden: o.orden ?? i })),
+        opciones.map((o, i) => ({ grupo_opciones_id: grupo.id, nombre: o.nombre, orden: o.orden ?? i, precio_delta: o.precio_delta ?? 0 })),
         { transaction: t }
       );
     }
@@ -72,7 +72,7 @@ async function actualizarGrupoOpciones(id, { nombre, opciones = [] }) {
     await Opcion.destroy({ where: { grupo_opciones_id: id }, transaction: t });
     if (opciones.length) {
       await Opcion.bulkCreate(
-        opciones.map((o, i) => ({ grupo_opciones_id: id, nombre: o.nombre, orden: o.orden ?? i })),
+        opciones.map((o, i) => ({ grupo_opciones_id: id, nombre: o.nombre, orden: o.orden ?? i, precio_delta: o.precio_delta ?? 0 })),
         { transaction: t }
       );
     }
@@ -83,8 +83,41 @@ async function actualizarGrupoOpciones(id, { nombre, opciones = [] }) {
 async function eliminarGrupoOpciones(id) {
   const grupo = await GrupoOpciones.findByPk(id);
   if (!grupo) throw Object.assign(new Error('Grupo de opciones no encontrado'), { status: 404 });
-  await Producto.update({ grupo_opciones_id: null }, { where: { grupo_opciones_id: id } });
+  await ProductoGrupoOpciones.destroy({ where: { grupo_opciones_id: id } });
   await grupo.destroy();
+}
+
+async function _reemplazarPasos(producto_id, pasos = [], transaction) {
+  await ProductoGrupoOpciones.destroy({ where: { producto_id }, transaction });
+  if (!pasos.length) return;
+  await ProductoGrupoOpciones.bulkCreate(
+    pasos.map((p, i) => ({
+      producto_id,
+      grupo_opciones_id: p.grupo_opciones_id,
+      orden: p.orden ?? i,
+      obligatorio: p.obligatorio ?? true,
+      disparado_por_opcion_id: p.disparado_por_opcion_id || null,
+    })),
+    { transaction }
+  );
+}
+
+const INCLUDE_PASOS = {
+  model: ProductoGrupoOpciones,
+  as: 'pasos',
+  separate: true,
+  order: [['orden', 'ASC']],
+  include: [
+    { model: GrupoOpciones, as: 'grupo_opciones', attributes: ['id', 'nombre'],
+      include: [{ model: Opcion, as: 'opciones', attributes: ['id', 'nombre', 'orden', 'precio_delta'] }] },
+  ],
+};
+
+function _ordenarOpcionesDePasos(producto) {
+  for (const paso of producto.pasos || []) {
+    paso.grupo_opciones.opciones.sort((a, b) => a.orden - b.orden);
+  }
+  return producto;
 }
 
 // --- Productos ---
@@ -106,11 +139,11 @@ async function listarProductos({ categoria_id, solo_vendibles, solo_disponibles,
     where,
     include: [
       { model: Categoria, as: 'categoria', attributes: ['id', 'nombre'] },
-      { model: GrupoOpciones, as: 'grupo_opciones', attributes: ['id', 'nombre'],
-        include: [{ model: Opcion, as: 'opciones', attributes: ['id', 'nombre', 'orden'] }] },
+      INCLUDE_PASOS,
     ],
     order,
   });
+  productos.forEach(_ordenarOpcionesDePasos);
 
   const conStock = await mezclarStockPorSucursal(productos, alcance);
 
@@ -124,16 +157,16 @@ async function obtenerProducto(id, alcance) {
   const p = await Producto.findByPk(id, {
     include: [
       { model: Categoria, as: 'categoria', attributes: ['id', 'nombre'] },
-      { model: GrupoOpciones, as: 'grupo_opciones', attributes: ['id', 'nombre'],
-        include: [{ model: Opcion, as: 'opciones', attributes: ['id', 'nombre', 'orden'] }] },
+      INCLUDE_PASOS,
     ],
   });
   if (!p) throw Object.assign(new Error('Producto no encontrado'), { status: 404 });
+  _ordenarOpcionesDePasos(p);
   const [conStock] = await mezclarStockPorSucursal([p], alcance);
   return conStock;
 }
 
-async function crearProducto({ categoria_id, nombre, codigo_barras, codigo, precio, costo, stock, sucursal_id, es_vendible, imagen, grupo_opciones_id }, alcance) {
+async function crearProducto({ categoria_id, nombre, codigo_barras, codigo, precio, costo, stock, sucursal_id, es_vendible, imagen, pasos }, alcance) {
   let sucursalDestino;
   const conStock = stock !== undefined && stock !== null;
 
@@ -148,7 +181,11 @@ async function crearProducto({ categoria_id, nombre, codigo_barras, codigo, prec
     }
   }
 
-  const producto = await Producto.create({ categoria_id, nombre, codigo_barras, codigo, precio, costo, stock: conStock ? 0 : null, es_vendible, imagen, grupo_opciones_id });
+  const producto = await sequelize.transaction(async (t) => {
+    const p = await Producto.create({ categoria_id, nombre, codigo_barras, codigo, precio, costo, stock: conStock ? 0 : null, es_vendible, imagen }, { transaction: t });
+    await _reemplazarPasos(p.id, pasos, t);
+    return p;
+  });
 
   if (conStock) {
     await ajustarStockSucursal({ producto_id: producto.id, sucursal_id: sucursalDestino, tipo: 'ajuste', cantidad: stock, usuario_id: alcance.usuario_id, nota: 'Stock inicial' });
@@ -158,10 +195,13 @@ async function crearProducto({ categoria_id, nombre, codigo_barras, codigo, prec
 }
 
 async function actualizarProducto(id, datos, alcance) {
-  const { stock, ...resto } = datos; // stock nunca se edita aquí — solo vía ajustarStockSucursal
+  const { stock, pasos, ...resto } = datos; // stock nunca se edita aquí — solo vía ajustarStockSucursal
   const p = await Producto.findByPk(id);
   if (!p) throw Object.assign(new Error('Producto no encontrado'), { status: 404 });
-  await p.update(resto);
+  await sequelize.transaction(async (t) => {
+    await p.update(resto, { transaction: t });
+    if (pasos !== undefined) await _reemplazarPasos(id, pasos, t);
+  });
   return obtenerProducto(id, alcance);
 }
 

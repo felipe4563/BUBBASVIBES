@@ -473,14 +473,33 @@ function FormProductoModal({ prod, categorias, gruposOpciones, accesoTodas, sucu
     if (inputFileRef.current) inputFileRef.current.value = '';
   }
 
+  // Un "disparado por" solo es válido si sigue apuntando a una opción de un
+  // grupo usado por un paso estrictamente anterior. Reordenar, quitar un paso
+  // o cambiar el grupo de un paso pueden romper esa invariante — se llama a
+  // este saneador al final de cada una de esas mutaciones (y de nuevo, como
+  // red de seguridad, justo antes de armar el payload en handleGuardar).
+  function sanearDisparadores(pasos) {
+    return pasos.map((p, idx) => {
+      if (!p.disparado_por_opcion_id) return p;
+      const opcionesDisponibles = pasos
+        .slice(0, idx)
+        .flatMap((pp) => gruposOpciones.find((g) => String(g.id) === String(pp.grupo_opciones_id))?.opciones ?? []);
+      const sigueValido = opcionesDisponibles.some((o) => String(o.id) === String(p.disparado_por_opcion_id));
+      return sigueValido ? p : { ...p, disparado_por_opcion_id: '' };
+    });
+  }
+
   function agregarPaso() {
     setForm((f) => ({ ...f, pasos: [...f.pasos, { grupo_opciones_id: '', obligatorio: true, disparado_por_opcion_id: '' }] }));
   }
   function actualizarPaso(i, cambios) {
-    setForm((f) => ({ ...f, pasos: f.pasos.map((p, idx) => idx === i ? { ...p, ...cambios } : p) }));
+    setForm((f) => {
+      const pasos = f.pasos.map((p, idx) => idx === i ? { ...p, ...cambios } : p);
+      return { ...f, pasos: sanearDisparadores(pasos) };
+    });
   }
   function quitarPaso(i) {
-    setForm((f) => ({ ...f, pasos: f.pasos.filter((_, idx) => idx !== i) }));
+    setForm((f) => ({ ...f, pasos: sanearDisparadores(f.pasos.filter((_, idx) => idx !== i)) }));
   }
   function moverPaso(i, delta) {
     setForm((f) => {
@@ -488,17 +507,7 @@ function FormProductoModal({ prod, categorias, gruposOpciones, accesoTodas, sucu
       const j = i + delta;
       if (j < 0 || j >= pasos.length) return f;
       [pasos[i], pasos[j]] = [pasos[j], pasos[i]];
-      // Al reordenar, un "disparado por" puede quedar apuntando a una opción
-      // de un paso que ya no está antes de este. Se limpia si ya no es válido.
-      const pasosLimpios = pasos.map((p, idx) => {
-        if (!p.disparado_por_opcion_id) return p;
-        const opcionesDisponibles = pasos
-          .slice(0, idx)
-          .flatMap((pp) => gruposOpciones.find((g) => String(g.id) === String(pp.grupo_opciones_id))?.opciones ?? []);
-        const sigueValido = opcionesDisponibles.some((o) => String(o.id) === String(p.disparado_por_opcion_id));
-        return sigueValido ? p : { ...p, disparado_por_opcion_id: '' };
-      });
-      return { ...f, pasos: pasosLimpios };
+      return { ...f, pasos: sanearDisparadores(pasos) };
     });
   }
 
@@ -509,7 +518,7 @@ function FormProductoModal({ prod, categorias, gruposOpciones, accesoTodas, sucu
       precio: parseFloat(form.precio),
       es_vendible: form.es_vendible,
       imagen: form.imagen,
-      pasos: form.pasos
+      pasos: sanearDisparadores(form.pasos)
         .filter((p) => p.grupo_opciones_id)
         .map((p, i) => ({
           grupo_opciones_id: parseInt(p.grupo_opciones_id),

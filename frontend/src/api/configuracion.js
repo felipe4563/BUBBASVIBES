@@ -19,3 +19,9 @@ export const subirLogo = (file) => {
   form.append('imagen', file);
   return api.post('/uploads/imagen', form).then((r) => r.data.datos.url);
 };
+
+export const subirQrPago = (file) => {
+  const form = new FormData();
+  form.append('imagen', file);
+  return api.post('/uploads/imagen', form).then((r) => r.data.datos.url);
+};

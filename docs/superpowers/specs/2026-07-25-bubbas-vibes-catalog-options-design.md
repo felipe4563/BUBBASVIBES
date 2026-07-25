@@ -28,6 +28,10 @@ Decisiones ya tomadas con el usuario (no reabrir):
   el precio exacto se deja como placeholder y se edita luego desde el panel de Productos.
 - Se desactiva el auto-print (backend y frontend); se agrega botón manual. El
   `print-agent` no se borra ni se modifica.
+- Se quita la integración CodePay (QR dinámico + webhook automático). El pago QR pasa a
+  ser un QR **estático** (una sola imagen, subida desde Configuración) con confirmación
+  **manual** por el cajero (botón "Marcar como pagado"), sin tabla `pagos_qr` ni llamadas
+  a servicios externos.
 - Se reemplaza el catálogo (`categorias`, `productos`, `grupos_opciones`, `opciones`)
   completo por el de Bubbas Vibes. Sucursal, usuario admin, roles y permisos se
   mantienen sin cambios (renombrables luego a mano si se quiere).
@@ -148,6 +152,28 @@ se agrega columna de tipo múltiple porque ninguna receta lo requiere.
 - **Branding**: se reemplaza el logo actual por `logo.jpeg` en login/sidebar (el asset se
   copia a `frontend/src/assets/` o `frontend/public/` según cómo esté implementado hoy).
 
+## Pago QR estático (reemplazo de CodePay)
+
+- **Backend**: se elimina la integración CodePay (`backend/src/integrations/codepay/`,
+  `backend/src/webhooks/codepay.webhook.routes.js`) y la tabla/modelo `pagos_qr`
+  (`PagoQr`). El campo `pedidos.metodo_pago` mantiene los valores `efectivo`/`qr`, pero
+  para `qr` ya no se crea ningún registro de transacción — el pedido pasa a
+  `pendiente_pago` → `completado` mediante confirmación manual del cajero (no hay estado
+  intermedio de "esperando webhook").
+- Nueva entrada en `configuraciones` (clave `qr_pago_imagen`, valor = ruta del archivo
+  subido) para guardar la imagen del QR estático. Se reutiliza el mecanismo de subida de
+  archivos ya existente (`backend/src/middlewares/upload.js`, carpeta `backend/uploads`).
+- **Frontend — Configuración**: se agrega un campo de subida/reemplazo de imagen ("QR de
+  pago") en la pantalla de Configuración, que llama al mismo endpoint de configuraciones
+  ya existente.
+- **Frontend — POS/cobro**: al elegir método de pago QR, se muestra la imagen fija
+  configurada (sin generar nada por pedido) junto a un botón **"Marcar como pagado"** que
+  el cajero presiona tras verificar manualmente el pago (por su cuenta, fuera del
+  sistema — notificación bancaria, comprobante, etc.). Ese botón dispara el mismo cierre
+  de pedido que hoy hace el pago en efectivo, marcando `metodo_pago='qr'`.
+- Variables de entorno `CODEPAY_*` y el cliente HTTP de CodePay se eliminan de
+  `backend/.env.example`/`.env.production.example` y del código.
+
 ## Seed de catálogo
 
 Script SQL (o seed Node reusando los modelos) que, tras la migración de esquema:
@@ -165,8 +191,10 @@ Script SQL (o seed Node reusando los modelos) que, tras la migración de esquema
 
 ## Fuera de alcance
 
-- No se toca el flujo de pagos QR (CodePay), mesas/áreas, caja, inventario, ni reportes
-  más allá de que ahora lean `detalle_pedido_opciones` si necesitan detalle del pedido.
+- No se tocan mesas/áreas, caja, inventario, ni reportes más allá de que ahora lean
+  `detalle_pedido_opciones` si necesitan detalle del pedido.
+- No se implementa ninguna forma de verificación automática de pago QR (ni webhook, ni
+  polling a un banco/billetera): la confirmación es 100% manual por el cajero.
 - No se borra ni modifica el código del `print-agent` ni sus instaladores.
 - No se define aún el precio real de Bubble Tea (queda placeholder, editable desde el
   panel de Productos).

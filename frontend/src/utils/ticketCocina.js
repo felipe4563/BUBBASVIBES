@@ -1,3 +1,5 @@
+const BASE_URL_TICKET = (import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1').replace('/api/v1', '');
+
 export function imprimirTicketCocina(pedido, config = {}) {
   const nombre  = config.nombre_negocio ?? 'COCINA';
   const dir     = config.direccion      ?? '';
@@ -16,10 +18,14 @@ export function imprimirTicketCocina(pedido, config = {}) {
 
   const filas = detalles.map(d => {
     const subtotal = (parseFloat(d.precio) * d.cantidad).toFixed(2);
+    const opcionesTexto = (d.opciones || [])
+      .map((o) => `<div style="font-size:11px;font-weight:600;padding-left:8px;">- ${o.nombre_opcion}</div>`)
+      .join('');
     return `
     <tr class="fila-prod">
       <td class="col-prod">
         <span class="prod-nombre">${d.producto?.nombre ?? ''}</span>
+        ${opcionesTexto}
         ${d.nota ? `<br><span class="prod-nota">» ${d.nota}</span>` : ''}
       </td>
       <td class="col-cant">${d.cantidad}</td>
@@ -181,6 +187,7 @@ export function imprimirTicketCocina(pedido, config = {}) {
 
   <!-- Header -->
   <div class="header">
+    ${config.logo ? `<img src="${BASE_URL_TICKET}${config.logo}" style="max-width:120px;max-height:70px;display:block;margin:0 auto 4px;filter:grayscale(1) contrast(1.3);" />` : ''}
     <div class="header-nombre">★ ${nombre} ★</div>
     ${dir ? `<div class="header-sub">${dir}</div>` : ''}
     ${tel ? `<div class="header-sub">Tel: ${tel}</div>` : ''}

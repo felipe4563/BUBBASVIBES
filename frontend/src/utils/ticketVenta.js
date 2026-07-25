@@ -1,3 +1,5 @@
+const BASE_URL_TICKET = (import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1').replace('/api/v1', '');
+
 export function imprimirTicketVenta(pedido, pago, config = {}) {
   const nombre  = config.nombre_negocio  ?? 'Restaurante';
   const dir     = config.direccion       ?? '';
@@ -16,9 +18,12 @@ export function imprimirTicketVenta(pedido, pago, config = {}) {
 
   const filas = detalles.map(d => {
     const subtotal = (parseFloat(d.precio) * d.cantidad).toFixed(2);
+    const opcionesTexto = (d.opciones || [])
+      .map((o) => `<div style="font-size:10px;color:#555;padding-left:8px;">- ${o.nombre_opcion}</div>`)
+      .join('');
     return `
     <tr class="fila-prod">
-      <td class="col-prod"><span class="prod-nombre">${d.producto?.nombre ?? ''}</span></td>
+      <td class="col-prod"><span class="prod-nombre">${d.producto?.nombre ?? ''}</span>${opcionesTexto}</td>
       <td class="col-cant">${d.cantidad}</td>
       <td class="col-precio">${parseFloat(d.precio).toFixed(2)}</td>
       <td class="col-sub">${subtotal}</td>
@@ -144,6 +149,7 @@ ${['', ''].map((_, i) => `
   <div class="${i === 0 ? 'copia' : ''}">
 
   <div class="header">
+    ${config.logo ? `<img src="${BASE_URL_TICKET}${config.logo}" style="max-width:120px;max-height:70px;display:block;margin:0 auto 4px;filter:grayscale(1) contrast(1.3);" />` : ''}
     <div class="header-nombre">${nombre}</div>
     ${dir ? `<div class="header-sub">${dir}</div>` : ''}
     ${tel ? `<div class="header-sub">Tel: ${tel}</div>` : ''}

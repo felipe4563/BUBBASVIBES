@@ -7,7 +7,8 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "test": "jest --runInBand",
-    "seed": "node database/seeds/seed.js"
+    "seed": "node database/seeds/seed.js",
+    "seed:bubbasvibes": "node database/seeds/seed-bubbasvibes.js"
   },
   "jest": {
     "testEnvironment": "node",

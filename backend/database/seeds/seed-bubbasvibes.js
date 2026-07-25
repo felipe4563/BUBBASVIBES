@@ -17,20 +17,24 @@ async function limpiarCatalogoAnterior() {
   // usuarios/roles/sucursales/áreas/mesas.
   // MySQL/InnoDB no soporta TRUNCATE ... CASCADE (a diferencia de Postgres) —
   // se desactivan las FK checks temporalmente para poder truncar en cualquier
-  // orden sin toparse con ER_TRUNCATE_ILLEGAL_FK.
+  // orden sin toparse con ER_TRUNCATE_ILLEGAL_FK. El try/finally asegura que
+  // se reactiven aunque un truncate falle a mitad de camino.
   await sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
-  await DetalleCompra.destroy({ where: {}, truncate: true });
-  await Compra.destroy({ where: {}, truncate: true });
-  await RegistroInventario.destroy({ where: {}, truncate: true });
-  await DetallePedidoOpciones.destroy({ where: {}, truncate: true });
-  await DetallePedido.destroy({ where: {}, truncate: true });
-  await Pedido.destroy({ where: {}, truncate: true });
-  await ProductoGrupoOpciones.destroy({ where: {}, truncate: true });
-  await Producto.destroy({ where: {}, truncate: true });
-  await Opcion.destroy({ where: {}, truncate: true });
-  await GrupoOpciones.destroy({ where: {}, truncate: true });
-  await Categoria.destroy({ where: {}, truncate: true });
-  await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
+  try {
+    await DetalleCompra.destroy({ where: {}, truncate: true });
+    await Compra.destroy({ where: {}, truncate: true });
+    await RegistroInventario.destroy({ where: {}, truncate: true });
+    await DetallePedidoOpciones.destroy({ where: {}, truncate: true });
+    await DetallePedido.destroy({ where: {}, truncate: true });
+    await Pedido.destroy({ where: {}, truncate: true });
+    await ProductoGrupoOpciones.destroy({ where: {}, truncate: true });
+    await Producto.destroy({ where: {}, truncate: true });
+    await Opcion.destroy({ where: {}, truncate: true });
+    await GrupoOpciones.destroy({ where: {}, truncate: true });
+    await Categoria.destroy({ where: {}, truncate: true });
+  } finally {
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
+  }
 }
 
 async function crearGrupo(nombre, opciones) {

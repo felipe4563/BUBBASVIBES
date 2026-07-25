@@ -223,7 +223,7 @@ function PedidoCard({ pedido, onListo, cargando, esLlevar }) {
       {/* Items */}
       <ul className="space-y-1.5">
         {(pedido.detalles ?? []).map(d => (
-          <li key={d.id} className="flex items-center gap-3">
+          <li key={d.id} className="flex items-start gap-3">
             <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
               esNuevo
                 ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
@@ -231,9 +231,16 @@ function PedidoCard({ pedido, onListo, cargando, esLlevar }) {
             }`}>
               {d.cantidad}
             </span>
-            <span className="text-sm text-gray-700 dark:text-gray-300 font-medium">
-              {d.producto?.nombre}
-            </span>
+            <div className="flex-1 min-w-0">
+              <span className="text-sm text-gray-700 dark:text-gray-300 font-medium">
+                {d.producto?.nombre}
+              </span>
+              {d.opciones?.length > 0 && (
+                <p className="text-xs text-blue-600 dark:text-blue-400 truncate">
+                  {d.opciones.map((o) => `${o.nombre_grupo}: ${o.nombre_opcion}`).join(' · ')}
+                </p>
+              )}
+            </div>
             {d.nota && (
               <span className="text-xs text-gray-400 italic ml-auto truncate max-w-[120px]">{d.nota}</span>
             )}

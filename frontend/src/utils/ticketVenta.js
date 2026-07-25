@@ -19,7 +19,7 @@ export function imprimirTicketVenta(pedido, pago, config = {}) {
   const filas = detalles.map(d => {
     const subtotal = (parseFloat(d.precio) * d.cantidad).toFixed(2);
     const opcionesTexto = (d.opciones || [])
-      .map((o) => `<div style="font-size:10px;color:#555;padding-left:8px;">- ${o.nombre_opcion}</div>`)
+      .map((o) => `<div style="font-size:10px;color:#555;padding-left:8px;">- ${o.nombre_grupo}: ${o.nombre_opcion}</div>`)
       .join('');
     return `
     <tr class="fila-prod">

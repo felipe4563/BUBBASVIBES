@@ -8,7 +8,7 @@ import {
 import { getVenta, agregarItem, actualizarItem, eliminarItem, cobrarVenta, cancelarVenta } from '../../api/ventas';
 import { getProductos } from '../../api/productos';
 import { getCategorias } from '../../api/categorias';
-import { getConfiguracion, BASE_URL } from '../../api/configuracion';
+import { getConfiguracionPublica, BASE_URL } from '../../api/configuracion';
 import { useAuth } from '../../hooks/useAuth';
 import { usePermisos } from '../../hooks/usePermisos';
 import Modal from '../../components/ui/Modal';
@@ -65,8 +65,8 @@ export default function PedidoPage() {
   }, [pedido]);
 
   const { data: config = {} } = useQuery({
-    queryKey: ['configuracion'],
-    queryFn: getConfiguracion,
+    queryKey: ['configuracion-publica'],
+    queryFn: getConfiguracionPublica,
     staleTime: 60_000,
   });
 
@@ -372,6 +372,11 @@ export default function PedidoPage() {
                         <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
                           {item.producto?.nombre}
                         </p>
+                        {item.opciones?.length > 0 && (
+                          <p className="text-xs text-blue-600 dark:text-blue-400 truncate">
+                            {item.opciones.map((o) => `${o.nombre_grupo}: ${o.nombre_opcion}`).join(' · ')}
+                          </p>
+                        )}
                         <p className="text-xs text-gray-400">
                           Bs {parseFloat(item.precio).toFixed(2)} c/u
                         </p>

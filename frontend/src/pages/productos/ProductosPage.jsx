@@ -432,7 +432,11 @@ function TabProductos({ puedeCrear, puedeEditar, puedeEliminar }) {
 function FormProductoModal({ prod, categorias, gruposOpciones, accesoTodas, sucursales, onClose, onGuardar, guardando, error }) {
   const [form, setForm] = useState({
     categoria_id: prod?.categoria_id ?? (categorias[0]?.id ?? ''),
-    grupo_opciones_id: prod?.grupo_opciones?.id ?? '',
+    pasos: prod?.pasos?.map((p) => ({
+      grupo_opciones_id: p.grupo_opciones.id,
+      obligatorio: !!p.obligatorio,
+      disparado_por_opcion_id: p.disparado_por_opcion_id || '',
+    })) ?? [],
     nombre:       prod?.nombre ?? '',
     precio:       prod?.precio ?? '',
     stock:        prod?.stock ?? '',
@@ -469,14 +473,50 @@ function FormProductoModal({ prod, categorias, gruposOpciones, accesoTodas, sucu
     if (inputFileRef.current) inputFileRef.current.value = '';
   }
 
+  function agregarPaso() {
+    setForm((f) => ({ ...f, pasos: [...f.pasos, { grupo_opciones_id: '', obligatorio: true, disparado_por_opcion_id: '' }] }));
+  }
+  function actualizarPaso(i, cambios) {
+    setForm((f) => ({ ...f, pasos: f.pasos.map((p, idx) => idx === i ? { ...p, ...cambios } : p) }));
+  }
+  function quitarPaso(i) {
+    setForm((f) => ({ ...f, pasos: f.pasos.filter((_, idx) => idx !== i) }));
+  }
+  function moverPaso(i, delta) {
+    setForm((f) => {
+      const pasos = [...f.pasos];
+      const j = i + delta;
+      if (j < 0 || j >= pasos.length) return f;
+      [pasos[i], pasos[j]] = [pasos[j], pasos[i]];
+      // Al reordenar, un "disparado por" puede quedar apuntando a una opción
+      // de un paso que ya no está antes de este. Se limpia si ya no es válido.
+      const pasosLimpios = pasos.map((p, idx) => {
+        if (!p.disparado_por_opcion_id) return p;
+        const opcionesDisponibles = pasos
+          .slice(0, idx)
+          .flatMap((pp) => gruposOpciones.find((g) => String(g.id) === String(pp.grupo_opciones_id))?.opciones ?? []);
+        const sigueValido = opcionesDisponibles.some((o) => String(o.id) === String(p.disparado_por_opcion_id));
+        return sigueValido ? p : { ...p, disparado_por_opcion_id: '' };
+      });
+      return { ...f, pasos: pasosLimpios };
+    });
+  }
+
   function handleGuardar() {
     const datos = {
       categoria_id: parseInt(form.categoria_id),
-      grupo_opciones_id: form.grupo_opciones_id ? parseInt(form.grupo_opciones_id) : null,
       nombre: form.nombre,
       precio: parseFloat(form.precio),
       es_vendible: form.es_vendible,
       imagen: form.imagen,
+      pasos: form.pasos
+        .filter((p) => p.grupo_opciones_id)
+        .map((p, i) => ({
+          grupo_opciones_id: parseInt(p.grupo_opciones_id),
+          orden: i,
+          obligatorio: p.obligatorio,
+          disparado_por_opcion_id: p.disparado_por_opcion_id ? parseInt(p.disparado_por_opcion_id) : null,
+        })),
     };
     // El stock solo se define al crear el producto; en edición se maneja
     // exclusivamente vía ajustes de inventario (ajustarStockSucursal).
@@ -564,15 +604,52 @@ function FormProductoModal({ prod, categorias, gruposOpciones, accesoTodas, sucu
             </select>
           </div>
           <div className="col-span-2">
-            <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Grupo de opciones</label>
-            <select
-              value={form.grupo_opciones_id}
-              onChange={e => set('grupo_opciones_id', e.target.value)}
-              className="w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-2.5 text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Ninguno</option>
-              {gruposOpciones.map(g => <option key={g.id} value={g.id}>{g.nombre}</option>)}
-            </select>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Pasos de selección</label>
+              <button type="button" onClick={agregarPaso} className="text-xs text-blue-600 hover:text-blue-700 font-semibold">+ Agregar paso</button>
+            </div>
+            <div className="space-y-2">
+              {form.pasos.map((paso, i) => {
+                const grupoElegido = gruposOpciones.find((g) => String(g.id) === String(paso.grupo_opciones_id));
+                const opcionesDisparo = form.pasos
+                  .slice(0, i)
+                  .map((p) => gruposOpciones.find((g) => String(g.id) === String(p.grupo_opciones_id)))
+                  .filter(Boolean)
+                  .flatMap((g) => g.opciones.map((o) => ({ ...o, grupoNombre: g.nombre })));
+
+                return (
+                  <div key={i} className="flex flex-wrap items-center gap-2 bg-gray-50 dark:bg-gray-700/50 rounded-xl p-2">
+                    <span className="text-xs text-gray-400 w-5 text-center">{i + 1}</span>
+                    <select
+                      value={paso.grupo_opciones_id}
+                      onChange={(e) => actualizarPaso(i, { grupo_opciones_id: e.target.value })}
+                      className="flex-1 min-w-[10rem] bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-800 dark:text-gray-100"
+                    >
+                      <option value="">Elegir grupo...</option>
+                      {gruposOpciones.map((g) => <option key={g.id} value={g.id}>{g.nombre}</option>)}
+                    </select>
+                    <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                      <input type="checkbox" checked={paso.obligatorio} onChange={(e) => actualizarPaso(i, { obligatorio: e.target.checked })} />
+                      Obligatorio
+                    </label>
+                    <select
+                      value={paso.disparado_por_opcion_id}
+                      onChange={(e) => actualizarPaso(i, { disparado_por_opcion_id: e.target.value })}
+                      className="flex-1 min-w-[10rem] bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-1.5 text-xs text-gray-800 dark:text-gray-100"
+                      title="Mostrar este paso solo si se eligió esta opción en un paso anterior"
+                    >
+                      <option value="">Mostrar siempre</option>
+                      {opcionesDisparo.map((o) => <option key={o.id} value={o.id}>{o.grupoNombre}: {o.nombre}</option>)}
+                    </select>
+                    <button type="button" onClick={() => moverPaso(i, -1)} disabled={i === 0} className="text-gray-400 hover:text-gray-600 disabled:opacity-30">↑</button>
+                    <button type="button" onClick={() => moverPaso(i, 1)} disabled={i === form.pasos.length - 1} className="text-gray-400 hover:text-gray-600 disabled:opacity-30">↓</button>
+                    <button type="button" onClick={() => quitarPaso(i)} className="text-red-400 hover:text-red-600">✕</button>
+                    {grupoElegido && <span className="text-[10px] text-gray-400 w-full">{grupoElegido.opciones.length} opciones</span>}
+                  </div>
+                );
+              })}
+              {form.pasos.length === 0 && <p className="text-xs text-gray-400">Sin pasos — el producto se agrega directo al carrito.</p>}
+            </div>
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Precio (Bs) *</label>
@@ -760,15 +837,17 @@ function TabOpciones({ puedeCrear, puedeEditar, puedeEliminar }) {
 function FormGrupoOpcionesModal({ grupo, onClose, onGuardar, guardando, error }) {
   const [nombre, setNombre] = useState(grupo?.nombre ?? '');
   const [opciones, setOpciones] = useState(
-    grupo?.opciones?.length ? grupo.opciones.map(o => ({ nombre: o.nombre })) : [{ nombre: '' }]
+    grupo?.opciones?.length
+      ? grupo.opciones.map(o => ({ nombre: o.nombre, precio_delta: o.precio_delta ?? 0 }))
+      : [{ nombre: '', precio_delta: 0 }]
   );
 
-  function setOpcionNombre(i, valor) {
-    setOpciones(prev => prev.map((o, idx) => idx === i ? { nombre: valor } : o));
+  function actualizarOpcion(i, cambios) {
+    setOpciones(prev => prev.map((o, idx) => idx === i ? { ...o, ...cambios } : o));
   }
 
   function agregarOpcion() {
-    setOpciones(prev => [...prev, { nombre: '' }]);
+    setOpciones(prev => [...prev, { nombre: '', precio_delta: 0 }]);
   }
 
   function quitarOpcion(i) {
@@ -787,9 +866,8 @@ function FormGrupoOpcionesModal({ grupo, onClose, onGuardar, guardando, error })
 
   function handleGuardar() {
     const opcionesValidas = opciones
-      .map(o => o.nombre.trim())
-      .filter(Boolean)
-      .map((nombre, orden) => ({ nombre, orden }));
+      .filter((o) => o.nombre.trim())
+      .map((o, orden) => ({ nombre: o.nombre.trim(), orden, precio_delta: parseFloat(o.precio_delta) || 0 }));
     onGuardar({ nombre, opciones: opcionesValidas });
   }
 
@@ -817,9 +895,17 @@ function FormGrupoOpcionesModal({ grupo, onClose, onGuardar, guardando, error })
               <div key={i} className="flex items-center gap-1.5">
                 <input
                   value={o.nombre}
-                  onChange={e => setOpcionNombre(i, e.target.value)}
+                  onChange={e => actualizarOpcion(i, { nombre: e.target.value })}
                   placeholder={`Opción ${i + 1}`}
                   className="flex-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl px-3 py-2 text-sm text-gray-800 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  value={o.precio_delta ?? 0}
+                  onChange={(e) => actualizarOpcion(i, { precio_delta: e.target.value })}
+                  className="w-20 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1 text-xs text-gray-800 dark:text-gray-100"
+                  placeholder="+Bs"
                 />
                 <button type="button" onClick={() => moverOpcion(i, -1)} disabled={i === 0} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-30 transition-colors">
                   <ChevronUp className="w-4 h-4" />

@@ -13,8 +13,8 @@
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- Ventas / pedidos
+TRUNCATE TABLE detalle_pedido_opciones;
 TRUNCATE TABLE detalle_pedidos;
-TRUNCATE TABLE pagos_qr;
 TRUNCATE TABLE pedidos;
 
 -- Caja / contabilidad
@@ -37,8 +37,8 @@ UPDATE mesas SET estado = 'disponible' WHERE estado <> 'disponible';
 
 -- Verificación: todo en 0 salvo mesas (que sigue teniendo sus filas, solo
 -- resetea el estado) y todo lo que no se tocó (productos, stock, etc).
-SELECT 'detalle_pedidos' t, COUNT(*) n FROM detalle_pedidos
-UNION ALL SELECT 'pagos_qr', COUNT(*) FROM pagos_qr
+SELECT 'detalle_pedido_opciones' t, COUNT(*) n FROM detalle_pedido_opciones
+UNION ALL SELECT 'detalle_pedidos', COUNT(*) FROM detalle_pedidos
 UNION ALL SELECT 'pedidos', COUNT(*) FROM pedidos
 UNION ALL SELECT 'detalle_arqueo', COUNT(*) FROM detalle_arqueo
 UNION ALL SELECT 'gastos', COUNT(*) FROM gastos

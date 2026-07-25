@@ -10,6 +10,7 @@ import { getProductos } from '../../api/productos';
 import { getCategorias } from '../../api/categorias';
 import { getConfiguracion, BASE_URL } from '../../api/configuracion';
 import { useAuth } from '../../hooks/useAuth';
+import { imprimirLocal } from '../../utils/impresionLocal';
 import { usePermisos } from '../../hooks/usePermisos';
 import Modal from '../../components/ui/Modal';
 import ModalPagoQr from './components/ModalPagoQr';
@@ -550,6 +551,7 @@ function ModalCobrar({ total, pedidoId, pedido, config, onClose, onExito }) {
       if (resultado.pago_qr) {
         setPagoQr(resultado.pago_qr);
       } else {
+        imprimirLocal(resultado.datos_impresion);
         onExito();
       }
     },

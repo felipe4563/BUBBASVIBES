@@ -157,10 +157,19 @@ async function _emitirImpresion(pedido, metodo_pago, cambio, sucursal_id) {
     where: { creado_en: { [Op.between]: [inicioDia, finDia] }, estado: { [Op.ne]: 'cancelado' } },
   });
 
-  emitir('print:caja', { pedido: pedido.toJSON(), metodo_pago, cambio, config: cfg, numero_orden_diario }, sucursal_id);
+  const datosCaja = { pedido: pedido.toJSON(), metodo_pago, cambio, config: cfg, numero_orden_diario };
+  emitir('print:caja', datosCaja, sucursal_id);
+
+  let datosCocina = null;
   if (cfg.flujo_cocina === 'fisico') {
-    emitir('print:cocina', { pedido: pedido.toJSON(), config: cfg, numero_orden_diario }, sucursal_id);
+    datosCocina = { pedido: pedido.toJSON(), config: cfg, numero_orden_diario };
+    emitir('print:cocina', datosCocina, sucursal_id);
   }
+
+  // Se devuelve además del emit por socket para que el navegador que hizo la
+  // venta pueda mandarlo directo al agente local (ver print-agent/agent.js),
+  // sin depender de que el socket del agente esté conectado al servidor.
+  return { caja: datosCaja, cocina: datosCocina };
 }
 
 /**
@@ -369,8 +378,8 @@ async function crearCompleta({ tipo, mesa_id, nombre_cliente, documento_cliente,
 
   const creado = await obtener(pedidoId);
   emitir('restaurante:actualizar', { tipo: 'pedido_cobrado' }, sucursal_id);
-  await _emitirImpresion(creado, metodo_pago, parseFloat(monto_recibido || monto_neto) - monto_neto, sucursal_id);
-  return creado;
+  const datos_impresion = await _emitirImpresion(creado, metodo_pago, parseFloat(monto_recibido || monto_neto) - monto_neto, sucursal_id);
+  return { ...creado.toJSON(), datos_impresion };
 }
 
 async function agregarItem(pedido_id, { producto_id, cantidad = 1, nota }, alcance) {
@@ -446,8 +455,8 @@ async function cobrar(pedido_id, usuario_id, { metodo_pago, monto_recibido, desc
 
   const cobrado = await obtener(pedido_id);
   emitir('restaurante:actualizar', { tipo: 'pedido_cobrado' }, pedido.sucursal_id);
-  await _emitirImpresion(cobrado, metodo_pago, parseFloat(monto_recibido) - monto_neto, pedido.sucursal_id);
-  return cobrado;
+  const datos_impresion = await _emitirImpresion(cobrado, metodo_pago, parseFloat(monto_recibido) - monto_neto, pedido.sucursal_id);
+  return { ...cobrado.toJSON(), datos_impresion };
 }
 
 async function cancelar(pedido_id, usuario_id, alcance) {

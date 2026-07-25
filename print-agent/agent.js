@@ -3,6 +3,7 @@ const { execFileSync } = require('child_process');
 const { writeFileSync, unlinkSync, readFileSync, existsSync } = require('fs');
 const path             = require('path');
 const os               = require('os');
+const http             = require('http');
 
 // En producción (pkg) lee config junto al .exe; en dev, junto al script
 const CONFIG_DIR = process.pkg
@@ -51,6 +52,57 @@ console.log(`Caja     : ${config.impresora_caja}`);
 console.log(`Cocina   : ${config.impresora_cocina}`);
 console.log('===================================');
 
+// ── Deduplicación ────────────────────────────────────────────────────────────
+// El mismo ticket puede llegar por dos canales (socket.io remoto y HTTP local
+// desde el navegador de esta misma PC). Se imprime una sola vez por
+// tipo+pedido, dentro de una ventana de unos minutos.
+const IMPRESOS_TTL_MS = 5 * 60 * 1000;
+const impresos = new Map(); // clave "tipo:pedidoId" -> timestamp
+
+function limpiarVencidos() {
+  const ahora = Date.now();
+  for (const [k, t] of impresos) {
+    if (ahora - t > IMPRESOS_TTL_MS) impresos.delete(k);
+  }
+}
+
+// Solo consulta — no marca. Marcar antes de imprimir bloquearía los
+// reintentos si la impresión falla (sin papel, apagada, etc).
+function yaImpreso(tipo, pedidoId) {
+  limpiarVencidos();
+  return impresos.has(tipo + ':' + pedidoId);
+}
+
+function marcarImpreso(tipo, pedidoId) {
+  impresos.set(tipo + ':' + pedidoId, Date.now());
+}
+
+function imprimirCaja(datos, origen) {
+  var pid = datos.pedido ? datos.pedido.id : '?';
+  if (yaImpreso('caja', pid)) {
+    console.log('[' + ts() + '] .. print:caja Pedido #' + pid + ' ya impreso (' + origen + ', omitido)');
+    return;
+  }
+  console.log('[' + ts() + '] >> print:caja  Pedido #' + pid + ' (' + origen + ')');
+  printRaw(config.impresora_caja, buildCaja(datos));
+  marcarImpreso('caja', pid);
+  console.log('[' + ts() + '] OK Caja impreso');
+}
+
+function imprimirCocina(datos, origen) {
+  var pid = datos.pedido ? datos.pedido.id : '?';
+  if (yaImpreso('cocina', pid)) {
+    console.log('[' + ts() + '] .. print:cocina Pedido #' + pid + ' ya impreso (' + origen + ', omitido)');
+    return;
+  }
+  console.log('[' + ts() + '] >> print:cocina Pedido #' + pid + ' (' + origen + ')');
+  printRaw(config.impresora_cocina, buildCocina(datos));
+  marcarImpreso('cocina', pid);
+  console.log('[' + ts() + '] OK Cocina impreso');
+}
+
+// ── Canal 1: socket.io remoto (respaldo — funciona aunque esta PC no sea la que vendió) ──
+
 const socket = io(config.servidor, {
   reconnection: true,
   reconnectionDelay: 3000,
@@ -70,25 +122,87 @@ socket.on('disconnect',    () => console.log(`[${ts()}] ✗ Desconectado — rei
 socket.on('connect_error', (e) => console.log(`[${ts()}] ✗ Error: ${e.message}`));
 
 socket.on('print:caja', function(datos) {
-  var pid = datos.pedido ? datos.pedido.id : '?';
-  console.log('[' + ts() + '] >> print:caja  Pedido #' + pid);
-  try {
-    printRaw(config.impresora_caja, buildCaja(datos));
-    console.log('[' + ts() + '] OK Caja impreso');
-  } catch (err) {
-    console.error('[' + ts() + '] ERROR caja: ' + err.message);
-  }
+  try { imprimirCaja(datos, 'socket'); }
+  catch (err) { console.error('[' + ts() + '] ERROR caja (socket): ' + err.message); }
 });
 
 socket.on('print:cocina', function(datos) {
-  var pid = datos.pedido ? datos.pedido.id : '?';
-  console.log('[' + ts() + '] >> print:cocina Pedido #' + pid);
-  try {
-    printRaw(config.impresora_cocina, buildCocina(datos));
-    console.log('[' + ts() + '] OK Cocina impreso');
-  } catch (err) {
-    console.error('[' + ts() + '] ERROR cocina: ' + err.message);
+  try { imprimirCocina(datos, 'socket'); }
+  catch (err) { console.error('[' + ts() + '] ERROR cocina (socket): ' + err.message); }
+});
+
+// ── Canal 2: HTTP local (principal — el navegador de ESTA PC llama directo, sin Internet) ──
+// Solo escucha en 127.0.0.1: nadie fuera de esta máquina puede llegar a este puerto.
+
+const PUERTO_LOCAL = 4321;
+let origenPermitido = '*';
+try { origenPermitido = new URL(config.servidor).origin; } catch {}
+
+function enviarCors(res) {
+  res.setHeader('Access-Control-Allow-Origin', origenPermitido);
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // Chrome exige esta cabecera para permitir que una página https:// (red pública)
+  // le hable a 127.0.0.1 (red privada) — "Private Network Access".
+  res.setHeader('Access-Control-Allow-Private-Network', 'true');
+}
+
+function leerCuerpo(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 2_000_000) { req.destroy(); reject(new Error('Cuerpo demasiado grande')); }
+    });
+    req.on('end', () => {
+      try { resolve(body ? JSON.parse(body) : {}); }
+      catch { reject(new Error('JSON inválido')); }
+    });
+    req.on('error', reject);
+  });
+}
+
+const servidorLocal = http.createServer(async (req, res) => {
+  enviarCors(res);
+
+  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
+  if (req.method === 'POST' && (req.url === '/imprimir/caja' || req.url === '/imprimir/cocina')) {
+    const tipo = req.url === '/imprimir/caja' ? 'caja' : 'cocina';
+    try {
+      const datos = await leerCuerpo(req);
+      if (tipo === 'caja') imprimirCaja(datos, 'local');
+      else imprimirCocina(datos, 'local');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (err) {
+      console.error('[' + ts() + '] ERROR ' + tipo + ' (local): ' + err.message);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, mensaje: err.message }));
+    }
+    return;
   }
+
+  if (req.method === 'GET' && req.url === '/salud') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, sucursal_id: config.sucursal_id || null }));
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ ok: false, mensaje: 'No encontrado' }));
+});
+
+servidorLocal.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[${ts()}] ✗ Puerto ${PUERTO_LOCAL} ya está en uso — ¿hay otro agente corriendo?`);
+  } else {
+    console.error(`[${ts()}] ✗ Error del servidor local: ${err.message}`);
+  }
+});
+
+servidorLocal.listen(PUERTO_LOCAL, '127.0.0.1', () => {
+  console.log(`[${ts()}] ✓ Servidor local escuchando en http://127.0.0.1:${PUERTO_LOCAL} (origen permitido: ${origenPermitido})`);
 });
 
 // ── ESC/POS ──────────────────────────────────────────────────────────────────

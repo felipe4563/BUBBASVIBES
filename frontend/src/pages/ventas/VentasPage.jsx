@@ -13,6 +13,7 @@ import { getCategorias } from '../../api/categorias';
 import { BASE_URL } from '../../api/configuracion';
 import { usePermisos } from '../../hooks/usePermisos';
 import { useAuth } from '../../hooks/useAuth';
+import { imprimirLocal } from '../../utils/impresionLocal';
 import ModalLlevar from './components/ModalLlevar';
 import ModalMesas from './components/ModalMesas';
 import CategoriasBar from './components/CategoriasBar';
@@ -461,6 +462,7 @@ function ModalCobrar({ total, carrito, tipo, mesaId, nombreCliente, sesionCajaId
       if (resultado.pago_qr) {
         setPagoQrEstado({ pedidoId: resultado.pedido.id, pagoQr: resultado.pago_qr });
       } else {
+        imprimirLocal(resultado.datos_impresion);
         onExito();
       }
     },

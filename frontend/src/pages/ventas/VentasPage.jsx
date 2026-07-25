@@ -10,7 +10,7 @@ import { getVentas, crearVentaCompleta } from '../../api/ventas';
 import { getEstadoCajas } from '../../api/caja';
 import { getProductos } from '../../api/productos';
 import { getCategorias } from '../../api/categorias';
-import { BASE_URL, getConfiguracion } from '../../api/configuracion';
+import { BASE_URL, getConfiguracionPublica } from '../../api/configuracion';
 import { usePermisos } from '../../hooks/usePermisos';
 import { useAuth } from '../../hooks/useAuth';
 import ModalLlevar from './components/ModalLlevar';
@@ -463,7 +463,7 @@ function ModalCobrar({ total, carrito, tipo, mesaId, nombreCliente, sesionCajaId
   const [error, setError] = useState(null);
   const [ventaCompletada, setVentaCompletada] = useState(null);
 
-  const { data: config = {} } = useQuery({ queryKey: ['configuracion'], queryFn: getConfiguracion });
+  const { data: config = {} } = useQuery({ queryKey: ['configuracion-publica'], queryFn: getConfiguracionPublica });
 
   const iniciar = useMutation({
     mutationFn: () => crearVentaCompleta({

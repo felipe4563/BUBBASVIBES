@@ -9,7 +9,9 @@ async function obtenerTodo() {
 }
 
 async function obtenerPublica() {
-  const claves = ['nombre_negocio', 'logo'];
+  // Campos necesarios para cobrar (QR de pago) e imprimir tickets con la marca del
+  // negocio, sin exigir el permiso "configuracion.ver" (que es admin-only).
+  const claves = ['nombre_negocio', 'logo', 'direccion', 'telefono', 'simbolo_moneda', 'qr_pago'];
   const configs = await Configuracion.findAll({ where: { clave: claves } });
   return configs.reduce((obj, c) => {
     obj[c.clave] = c.valor;

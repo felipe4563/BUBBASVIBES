@@ -2,6 +2,7 @@ import { RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { router } from './router/index.jsx';
 import { useTheme } from './hooks/useTheme';
+import { useDynamicManifest } from './hooks/useDynamicManifest';
 import OfflineIndicator from './components/pwa/OfflineIndicator';
 import InstallPrompt from './components/pwa/InstallPrompt';
 
@@ -18,6 +19,8 @@ function ThemeSync() {
 }
 
 export default function App() {
+  useDynamicManifest();
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeSync />

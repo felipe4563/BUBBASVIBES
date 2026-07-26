@@ -19,4 +19,14 @@ async function actualizar(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { obtenerTodo, obtenerPublica, actualizar };
+async function manifest(req, res, next) {
+  try {
+    const backendOrigin = `${req.protocol}://${req.get('host')}`;
+    const frontendOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
+    const datos = await svc.obtenerManifest({ backendOrigin, frontendOrigin });
+    res.set('Content-Type', 'application/manifest+json');
+    res.json(datos);
+  } catch (err) { next(err); }
+}
+
+module.exports = { obtenerTodo, obtenerPublica, actualizar, manifest };

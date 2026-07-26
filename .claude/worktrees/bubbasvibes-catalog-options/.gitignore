@@ -1,0 +1,18 @@
+# Agente de impresión térmica — el código fuente se sube como respaldo;
+# lo generado/local a cada PC no (se reconstruye con "npm run build").
+print-agent/node_modules/
+print-agent/dist/
+print-agent/config.json
+print-agent/agente.lock
+print-agent/agente.log
+print-agent-test/
+node_modules/
+
+# Variables de entorno para docker-compose
+.env
+
+# Dumps de base de datos (no subir datos/backups al repo)
+
+# Archivos subidos por usuarios (imágenes de productos, logo, etc.)
+backend/uploads/*
+!backend/uploads/.gitkeep

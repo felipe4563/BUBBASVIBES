@@ -19,7 +19,7 @@ export function imprimirTicketVenta(pedido, pago, config = {}) {
   const filas = detalles.map(d => {
     const subtotal = (parseFloat(d.precio) * d.cantidad).toFixed(2);
     const opcionesTexto = (d.opciones || [])
-      .map((o) => `<div style="font-size:10px;color:#555;padding-left:8px;">- ${o.nombre_grupo}: ${o.nombre_opcion}</div>`)
+      .map((o) => `<div class="opcion-item">${o.nombre_grupo}: <strong>${o.nombre_opcion}</strong></div>`)
       .join('');
     return `
     <tr class="fila-prod">
@@ -113,6 +113,14 @@ export function imprimirTicketVenta(pedido, pago, config = {}) {
 
     .prod-nombre { font-weight: 700; font-size: 14px; line-height: 1.3; }
 
+    .opcion-item {
+      font-size: 10.5px; color: #222;
+      padding: 1px 0 1px 10px;
+      margin-top: 1px;
+      border-left: 2px solid #000;
+    }
+    .opcion-item strong { font-weight: 700; }
+
     .total-bloque { margin-top: 3px; }
     .total-row {
       display: flex; justify-content: space-between;
@@ -135,8 +143,6 @@ export function imprimirTicketVenta(pedido, pago, config = {}) {
       margin-bottom: 2px;
     }
 
-    .copia { page-break-after: always; }
-
     @media print {
       @page { size: 70mm auto; margin: 2mm 3mm; }
       body  { width: 100%; padding: 0; }
@@ -145,11 +151,8 @@ export function imprimirTicketVenta(pedido, pago, config = {}) {
 </head>
 <body>
 
-${['', ''].map((_, i) => `
-  <div class="${i === 0 ? 'copia' : ''}">
-
   <div class="header">
-    ${config.logo ? `<img src="${BASE_URL_TICKET}${config.logo}" style="max-width:120px;max-height:70px;display:block;margin:0 auto 4px;filter:grayscale(1) contrast(1.3);" />` : ''}
+    ${config.logo ? `<img src="${BASE_URL_TICKET}${config.logo}" style="max-width:170px;max-height:100px;display:block;margin:0 auto 6px;filter:grayscale(1) contrast(1.3);" />` : ''}
     <div class="header-nombre">${nombre}</div>
     ${dir ? `<div class="header-sub">${dir}</div>` : ''}
     ${tel ? `<div class="header-sub">Tel: ${tel}</div>` : ''}
@@ -198,9 +201,6 @@ ${['', ''].map((_, i) => `
     <div class="footer-gracias">¡Gracias por su visita!</div>
     <div>${nombre}</div>
   </div>
-
-  </div>
-`).join('')}
 
 </body>
 </html>`;

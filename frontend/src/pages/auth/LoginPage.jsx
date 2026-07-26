@@ -9,7 +9,7 @@ import { getConfiguracionPublica, logoSrc } from '../../api/configuracion';
 // Signature element: ornamental plate/menu medallion around the logo
 function Medallion({ logo, nombre }) {
   return (
-    <div className="relative w-24 h-24 mx-auto">
+    <div className="relative w-24 h-24 mx-auto animate-float-slow motion-reduce:animate-none">
       <svg
         className="absolute inset-0 w-full h-full text-amber-500/40 dark:text-amber-500/25"
         viewBox="0 0 96 96"
@@ -127,7 +127,7 @@ export default function LoginPage() {
       {/* Ambient glow centered behind card */}
       <div
         aria-hidden
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[480px] h-[480px] rounded-full pointer-events-none"
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[480px] h-[480px] rounded-full pointer-events-none animate-pulse-glow motion-reduce:animate-none"
         style={{
           background: 'radial-gradient(circle, rgba(200,136,58,0.12) 0%, transparent 70%)',
         }}
@@ -136,7 +136,7 @@ export default function LoginPage() {
       <div className="relative z-10 w-full max-w-sm">
 
         {/* Medallion + business name */}
-        <div className="text-center mb-7 space-y-4">
+        <div className="text-center mb-7 space-y-4 animate-fade-in-up motion-reduce:animate-none">
           <Medallion logo={logo} nombre={nombreNegocio} />
           <div>
             <h1
@@ -152,14 +152,17 @@ export default function LoginPage() {
         </div>
 
         {/* Login card */}
-        <div className="bg-white/90 dark:bg-[#1E1208]/90 backdrop-blur-sm rounded-2xl border border-[#EAE0D4] dark:border-[#352212] shadow-[0_8px_40px_rgba(0,0,0,0.07)] dark:shadow-[0_8px_40px_rgba(0,0,0,0.45)] p-8">
+        <div
+          className="bg-white/90 dark:bg-[#1E1208]/90 backdrop-blur-sm rounded-2xl border border-[#EAE0D4] dark:border-[#352212] shadow-[0_8px_40px_rgba(0,0,0,0.07)] dark:shadow-[0_8px_40px_rgba(0,0,0,0.45)] p-8 animate-fade-in-up motion-reduce:animate-none"
+          style={{ animationDelay: '80ms' }}
+        >
 
           <p className="text-sm text-center text-[#9A8878] dark:text-[#5A4A38] mb-7 -mt-1">
             Inicia sesión para continuar
           </p>
 
           {paso === 'credenciales' ? (
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form key="credenciales" onSubmit={handleSubmit} className="space-y-5 animate-fade-in-up motion-reduce:animate-none">
 
               {/* Email */}
               <div className="space-y-1.5">
@@ -206,7 +209,7 @@ export default function LoginPage() {
 
               {/* Error message */}
               {error && (
-                <div className="rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 px-4 py-3">
+                <div key={error} className="rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 px-4 py-3 animate-shake-x motion-reduce:animate-none">
                   <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
                 </div>
               )}
@@ -215,31 +218,32 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={cargando}
-                className="w-full mt-1 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-xl py-3 text-sm font-semibold tracking-wide transition-all duration-200 shadow-sm hover:shadow-lg hover:shadow-amber-600/20"
+                className="w-full mt-1 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100 text-white rounded-xl py-3 text-sm font-semibold tracking-wide transition-all duration-200 shadow-sm hover:shadow-lg hover:shadow-amber-600/20"
               >
                 {cargando ? 'Iniciando sesión...' : 'Iniciar sesión'}
               </button>
             </form>
           ) : (
-            <div className="space-y-3">
+            <div key="sucursal" className="space-y-3 animate-fade-in-up motion-reduce:animate-none">
               <p className="text-xs text-center text-[#9A8878] dark:text-[#5A4A38] -mt-1 mb-2">
                 Elige con qué sucursal quieres trabajar
               </p>
 
-              {sucursales.map((s) => (
+              {sucursales.map((s, i) => (
                 <button
                   key={s.id ?? 'todas'}
                   type="button"
                   disabled={cargando}
                   onClick={() => handleElegirSucursal(s.id)}
-                  className="w-full text-left bg-[#FDFAF7] dark:bg-[#160F08] border border-[#E2D9CE] dark:border-[#3A2412] rounded-xl px-4 py-3 text-sm text-[#1C1208] dark:text-[#F0E8D8] hover:border-amber-400 dark:hover:border-amber-600 hover:bg-amber-50/40 dark:hover:bg-amber-900/10 transition disabled:opacity-60"
+                  style={{ animationDelay: `${i * 50}ms` }}
+                  className="w-full text-left bg-[#FDFAF7] dark:bg-[#160F08] border border-[#E2D9CE] dark:border-[#3A2412] rounded-xl px-4 py-3 text-sm text-[#1C1208] dark:text-[#F0E8D8] hover:border-amber-400 dark:hover:border-amber-600 hover:bg-amber-50/40 dark:hover:bg-amber-900/10 active:scale-[0.98] transition disabled:opacity-60 disabled:active:scale-100 animate-fade-in-up motion-reduce:animate-none"
                 >
                   {s.nombre}
                 </button>
               ))}
 
               {error && (
-                <div className="rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 px-4 py-3">
+                <div key={error} className="rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 px-4 py-3 animate-shake-x motion-reduce:animate-none">
                   <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
                 </div>
               )}
@@ -256,7 +260,7 @@ export default function LoginPage() {
         </div>
 
         {/* Desarrollado por CodeWave */}
-        <div className="flex flex-col items-center gap-2 mt-6">
+        <div className="flex flex-col items-center gap-2 mt-6 animate-fade-in-up motion-reduce:animate-none" style={{ animationDelay: '160ms' }}>
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#CCC0B4] dark:text-[#3A2E22]">
             Desarrollado por
           </p>

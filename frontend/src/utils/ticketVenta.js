@@ -1,6 +1,64 @@
+import { ComandosEscPos, esAndroid, imprimirConRawBT } from './escpos';
+
 const BASE_URL_TICKET = (import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1').replace('/api/v1', '');
+const ANCHO_TICKET_ESCPOS = 42; // caracteres por línea a fuente normal en 80mm
+
+// En Android no hay diálogo del navegador que hablar con Bluetooth SPP (Web
+// Bluetooth solo soporta BLE), así que el ticket se manda como comandos
+// crudos ESC/POS a RawBT, que ya tiene la impresora térmica emparejada.
+function imprimirTicketVentaRawBT(pedido, pago, config) {
+  const nombre  = config.nombre_negocio ?? 'Restaurante';
+  const dir     = config.direccion      ?? '';
+  const tel     = config.telefono       ?? '';
+  const simbolo = config.simbolo_moneda ?? 'Bs.';
+
+  const ahora = new Date();
+  const fecha = ahora.toLocaleDateString('es-BO', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const hora  = ahora.toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' });
+
+  const esLlevar = pedido.tipo === 'llevar';
+  const nOrden   = String(esLlevar ? (pedido.numero_llevar ?? pedido.id) : pedido.id).padStart(3, '0');
+
+  const detalles = pedido.detalles ?? [];
+  const total    = pago.total ?? detalles.reduce((s, d) => s + parseFloat(d.precio) * d.cantidad, 0);
+  const separador = '-'.repeat(ANCHO_TICKET_ESCPOS);
+
+  const c = new ComandosEscPos().init();
+
+  c.alinear(1).negrita(true).tamano(true, true).linea(nombre.toUpperCase());
+  c.tamano(false, false).negrita(false);
+  if (dir) c.linea(dir);
+  if (tel) c.linea(`Tel: ${tel}`);
+  c.linea(separador);
+
+  c.negrita(true).linea(esLlevar ? '-- PARA LLEVAR --' : '-- ORDEN DE MESA --');
+  c.tamano(true, true);
+  c.linea(esLlevar ? `${pedido.nombre_cliente ?? '-'}  #${nOrden}` : `${pedido.mesa?.nombre ?? '-'}  #${nOrden}`);
+  c.tamano(false, false).negrita(false);
+  c.linea(separador);
+
+  c.alinear(0).linea(`Fecha: ${fecha}   Hora: ${hora}`).linea(separador);
+
+  detalles.forEach((d) => {
+    const subtotal = (parseFloat(d.precio) * d.cantidad).toFixed(2);
+    c.negrita(true).linea(`${d.cantidad} x ${d.producto?.nombre ?? ''}`).negrita(false);
+    (d.opciones || []).forEach((o) => c.linea(`   - ${o.nombre_grupo}: ${o.nombre_opcion}`));
+    c.alinear(2).linea(`${simbolo} ${subtotal}`).alinear(0);
+  });
+
+  c.linea(separador);
+  c.alinear(2).tamano(true, true).negrita(true).linea(`TOTAL ${simbolo} ${parseFloat(total).toFixed(2)}`);
+  c.tamano(false, false).negrita(false).alinear(1);
+
+  c.feed(1).linea('¡Gracias por su visita!').linea(nombre);
+  c.feed(3).cortar();
+
+  imprimirConRawBT(c);
+}
 
 export function imprimirTicketVenta(pedido, pago, config = {}) {
+  if (esAndroid()) { imprimirTicketVentaRawBT(pedido, pago, config); return; }
+
   const nombre  = config.nombre_negocio  ?? 'Restaurante';
   const dir     = config.direccion       ?? '';
   const tel     = config.telefono        ?? '';
